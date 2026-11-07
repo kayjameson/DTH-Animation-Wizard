@@ -1,0 +1,95 @@
+#include "CoreMinimal.h"
+
+#if WITH_DEV_AUTOMATION_TESTS
+
+#include "Animation/AnimSequence.h"
+#include "DTHAnimBatch.h"
+#include "DTHAnimScripting.h"
+#include "DTHAnimSettings.h"
+#include "Engine/SkeletalMesh.h"
+#include "Framework/Docking/TabManager.h"
+#include "Misc/AutomationTest.h"
+#include "Misc/PackageName.h"
+#include "UI/SDTHAnimationWizard.h"
+#include "DTHAnimationWizardModule.h"
+
+namespace
+{
+	constexpr EAutomationTestFlags Flags = EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter;
+	/** How many clips the batch check writes: enough for the batch path, short enough to run often. */
+	constexpr int32 BatchClips = 4;
+}
+
+// Phase 2, the batch: the first clips of the sampler's index written for the character into Test Folder/Batch, one key
+// per sampled frame at the clip's rate, at the path the wizard promises. Run again with replace: no duplicates, same
+// keys. Run again without: every clip left as it was.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDTHAnimP2Batch, "DTH.Anim.P2.Batch", Flags)
+bool FDTHAnimP2Batch::RunTest(const FString&)
+{
+	const UDTHAnimSettings* S = GetDefault<UDTHAnimSettings>();
+	USkeletalMesh* Mesh = Cast<USkeletalMesh>(S->Character.TryLoad());
+	if (!Mesh) { AddError(TEXT("Set Character.")); return false; }
+	const FString Root = S->TestFolder.Path / TEXT("Batch");
+	if (!Root.StartsWith(TEXT("/Game/")) || !Root.Contains(TEXT("_Test"))) { AddError(TEXT("Set Test Folder to a _Test folder.")); return false; }
+	FDTHAnimIndex Index;
+	FString Error;
+	if (!Index.Load(S->SamplesIndex.FilePath, Error)) { AddError(Error); return false; }
+	TArray<const FDTHAnimIndexEntry*> Clips;
+	for (const FDTHAnimIndexEntry& C : Index.Clips) if (Clips.Num() < BatchClips && !C.Samples.IsEmpty()) Clips.Add(&C);
+	AddInfo(FString::Printf(TEXT("Index %s: %d clips, %d not sampled. Writing the first %d."), *Index.File, Index.Clips.Num(), Index.Errors.Num(), Clips.Num()));
+
+	auto Run = [&](bool bReplace, TArray<UAnimSequence*>& Out)
+	{
+		TArray<FDTHAnimMessage> Report;
+		const bool bOk = DTHAnimBatch::WriteClips(*Mesh, Clips, Root, bReplace, Report, &Out);
+		for (const FDTHAnimMessage& M : Report)
+		{
+			if (M.Severity == FDTHAnimMessage::ESeverity::Error) AddError(M.Text); else AddInfo(M.ToLine());
+		}
+		return bOk;
+	};
+	TArray<UAnimSequence*> First, Second, Third;
+	if (!Run(true, First)) return false;
+	TestEqual(TEXT("Sequences written"), First.Num(), Clips.Num());
+	for (int32 I = 0; I < First.Num() && I < Clips.Num(); ++I)
+	{
+		const FString Expected = DTHAnimBatch::PackagePath(*Mesh, *Clips[I], Root);
+		TestEqual(*FString::Printf(TEXT("%s: path"), *Clips[I]->Label), First[I]->GetOutermost()->GetName(), Expected);
+		TestEqual(*FString::Printf(TEXT("%s: one key per sampled frame"), *Clips[I]->Label), First[I]->GetNumberOfSampledKeys(), Clips[I]->Frames);
+		TestEqual(*FString::Printf(TEXT("%s: frame rate"), *Clips[I]->Label), First[I]->GetSamplingFrameRate().AsDecimal(), Clips[I]->Fps);
+	}
+	if (!Run(true, Second)) return false;
+	for (int32 I = 0; I < Second.Num() && I < Clips.Num(); ++I)
+	{
+		const FString Path = DTHAnimBatch::PackagePath(*Mesh, *Clips[I], Root);
+		TestFalse(*FString::Printf(TEXT("%s: replaced, not numbered"), *Clips[I]->Label), FPackageName::DoesPackageExist(Path + TEXT("_2")));
+		TestEqual(*FString::Printf(TEXT("%s: same keys after replacing"), *Clips[I]->Label), Second[I]->GetNumberOfSampledKeys(), Clips[I]->Frames);
+	}
+	Run(false, Third);
+	TestEqual(TEXT("Without replace, nothing is written again"), Third.Num(), 0);
+	return true;
+}
+
+// Phase 2, the tab: it opens from scripting on both pages, lists the sampler's clips, and the scripting buttons give
+// the same lists.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDTHAnimP2Wizard, "DTH.Anim.P2.Wizard", Flags)
+bool FDTHAnimP2Wizard::RunTest(const FString&)
+{
+	TestEqual(TEXT("Opens on Settings"), UDTHAnimScripting::OpenWizard(TEXT("Settings")), FString(TEXT("Wizard open.")));
+	TestEqual(TEXT("Opens on Clips"), UDTHAnimScripting::OpenWizard(TEXT("Clips")), FString(TEXT("Wizard open.")));
+	TestTrue(TEXT("Unknown page refused"), UDTHAnimScripting::OpenWizard(TEXT("Nope")).StartsWith(TEXT("ERROR:")));
+	const TSharedPtr<SDTHAnimationWizard> Wizard = SDTHAnimationWizard::Get();
+	if (!Wizard.IsValid()) { AddError(TEXT("No wizard.")); return false; }
+	Wizard->Reload();
+	const TArray<FString> Listed = UDTHAnimScripting::ListClips(TEXT(""));
+	TestTrue(TEXT("Clips listed"), Listed.Num() > 0 && !Listed[0].StartsWith(TEXT("ERROR:")));
+	TestEqual(TEXT("The tab lists what scripting lists"), Wizard->NumListed(), Listed.Num());
+	AddInfo(FString::Printf(TEXT("%d clips listed; first: %s"), Listed.Num(), Listed.IsEmpty() ? TEXT("") : *Listed[0]));
+	if (TSharedPtr<SDockTab> Tab = FGlobalTabmanager::Get()->FindExistingLiveTab(FDTHAnimationWizardModule::WizardTabName))
+	{
+		Tab->RequestCloseTab();
+	}
+	return true;
+}
+
+#endif

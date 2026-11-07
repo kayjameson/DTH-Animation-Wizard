@@ -22,6 +22,13 @@ public class DTHAnimationWizard : ModuleRules
 			"UnrealEd",
 			"AssetRegistry",
 			"Projects",
+			"Slate",
+			"SlateCore",
+			"InputCore",
+			"ToolMenus",
+			"WorkspaceMenuStructure",
+			"PropertyEditor",
+			"ApplicationCore",
 		});
 	}
 }

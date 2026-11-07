@@ -20,7 +20,11 @@ public:
 	UPROPERTY(config, EditAnywhere, Category = "Character", meta = (DisplayName = "Character", AllowedClasses = "/Script/Engine.SkeletalMesh"))
 	FSoftObjectPath Character;
 
-	/** A clip's samples on base Genesis 9 (the sampler's clips/*.json): what the wizard recreates. */
+	/** The Daz sampler's index of sampled clips (DTH_AnimationSamples.json): the clips the wizard lists and writes. */
+	UPROPERTY(config, EditAnywhere, Category = "Clips", meta = (DisplayName = "Daz Samples Index", FilePathFilter = "json"))
+	FFilePath SamplesIndex;
+
+	/** Testing only: one clip's samples on base Genesis 9 (the sampler's clips/*.json). */
 	UPROPERTY(config, EditAnywhere, Category = "Testing", meta = (DisplayName = "Clip Samples File", FilePathFilter = "json"))
 	FFilePath ClipSamplesFile;
 

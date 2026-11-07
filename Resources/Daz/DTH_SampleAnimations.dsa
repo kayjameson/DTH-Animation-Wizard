@@ -131,7 +131,12 @@
 			if (n == snap[i][2]) continue;
 			for (var k = 0; k < n; k++) last = Math.max(last, Math.round(ticks(p.getKeyTime(k)) / step));
 			var owner = p.getOwner ? p.getOwner() : null;
-			if (owner && owner.inherits("DzMorph")) keyedMorphs.push(owner.getName());
+			if (owner && owner.inherits("DzMorph")) {
+				// Only keys that move the morph off its value before the clip: many clips key every face morph to 0 on frame 0.
+				var moves = false;
+				for (var kv = 0; kv < n && !moves; kv++) moves = Math.abs(p.getKeyValue(kv) - snap[i][1]) > 1e-4;
+				if (moves) keyedMorphs.push(owner.getName());
+			}
 			else if (owner && owner.inherits("DzBone")) keyedBones++;
 		}
 		return {last: last, keyedMorphs: keyedMorphs, keyedChannels: keyedBones};
