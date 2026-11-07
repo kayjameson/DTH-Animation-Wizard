@@ -39,6 +39,7 @@
 	function note(s) { result.messages.push(s); print(s); }
 	function exists(path) { return new DzFileInfo(path).exists(); }
 	function writeText(path, text) { var f = new DzFile(path); if (!f.open(DzFile.WriteOnly | DzFile.Truncate)) return false; f.write(text); f.close(); return true; }
+	function readJson(path) { var f = new DzFile(path); if (!f.open(DzFile.ReadOnly)) return null; var t = f.read(); f.close(); try { return JSON.parse(t); } catch (e) { return null; } }
 	function round(v, d) { var m = Math.pow(10, d); return Math.round(v * m) / m; }
 	function ticks(t) { return parseInt("" + t, 10); }
 
@@ -142,8 +143,8 @@
 		return {last: last, keyedMorphs: keyedMorphs, keyedChannels: keyedBones};
 	}
 
-	function loadFigure() {
-		if (Scene.needsSave() && !A.force) { result.error = "The open scene has unsaved changes. Save or close it, then run this again."; return false; }
+	function loadFigure(again) {
+		if (Scene.needsSave() && !A.force && !again) { result.error = "The open scene has unsaved changes. Save or close it, then run this again."; return false; }
 		Scene.clear();
 		REFS = null;
 		var fig = contentPath(FIGURE_FILE);
@@ -181,7 +182,11 @@
 	function sampleClip(clip, rest, zero, snap) {
 		var info = new DzFileInfo(clip.file), label = info.completeBaseName();
 		var outFile = OUT + "/clips/" + safeName(clip.pack + "_" + label) + ".json";
-		if (A.resume && exists(outFile)) { result.clips.push({label: label, file: clip.file, samples: outFile, skipped: "already sampled"}); return; }
+		var summaryFile = outFile.substring(0, outFile.length - 5) + ".summary.json";
+		if (A.resume && exists(outFile) && exists(summaryFile)) {
+			var kept = readJson(summaryFile);
+			if (kept) { kept.resumed = true; result.clips.push(kept); return; }
+		}
 		var main = mainFigure(), nodes = Scene.getNumNodes(), step = ticks(Scene.getTimeStep());
 		Scene.setTime(0);
 		Scene.selectAllNodes(false); main.select(true); Scene.setPrimarySelection(main);
@@ -219,8 +224,10 @@
 			roles: [{label: "", figure: "Genesis9", rest: rest, zero: zero, frames: frames}]};
 		new DzDir(OUT + "/clips").mkpath(OUT + "/clips");
 		if (!writeText(outFile, JSON.stringify(doc))) { result.errors.push(clip.file + ": could not write " + outFile); return; }
-		result.clips.push({label: label, file: clip.file, samples: outFile, frames: last + 1, fps: doc.fps,
-			sampleMs: sampled - loaded, keyedMorphs: keys.keyedMorphs.length, restoreDriftCm: doc.restoreDriftCm});
+		var summary = {label: label, file: clip.file, samples: outFile, frames: last + 1, fps: doc.fps,
+			sampleMs: sampled - loaded, keyedMorphs: keys.keyedMorphs.length, restoreDriftCm: doc.restoreDriftCm};
+		writeText(summaryFile, JSON.stringify(summary));
+		result.clips.push(summary);
 		note(label + ": " + (last + 1) + " frames in " + (sampled - loaded) + " ms.");
 	}
 
@@ -250,7 +257,15 @@
 	else clips = findClips();
 	var zero = sample(), rest = sampleUnrealPose(snapshot());
 	if (!rest) return result;
-	// Taken after the ROM came off: its keys on the face morphs leave their key counts changed.
+	// A fresh figure for the clips: taking the ROM off leaves the first clip sampled after it off on frame 0 (up to 0.55 cm at
+	// the head, against the same clip on a figure that never had the ROM: DTH.Anim.P3.SameAsOneScene, 2026-11-07).
+	if (!loadFigure(true)) return result;
+	var fresh = sample(), zeroDrift = 0;
+	for (var zb in zero.bones) {
+		var zp = zero.bones[zb].pos, fp = fresh.bones[zb] ? fresh.bones[zb].pos : zp;
+		zeroDrift = Math.max(zeroDrift, Math.abs(zp[0] - fp[0]), Math.abs(zp[1] - fp[1]), Math.abs(zp[2] - fp[2]));
+	}
+	if (zeroDrift > 1e-4) note("The reloaded figure differs from the first by " + zeroDrift + " cm.");
 	var snap = snapshot();
 	for (var c = 0; c < clips.length; c++) sampleClip(clips[c], rest, zero, snap);
 	var index = {format: "DTH Animation Samples Index", version: 1, sampledAt: new Date().toISOString(), clips: result.clips, errors: result.errors};

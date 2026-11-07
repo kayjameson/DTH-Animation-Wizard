@@ -29,6 +29,9 @@ public class DTHAnimationWizard : ModuleRules
 			"WorkspaceMenuStructure",
 			"PropertyEditor",
 			"ApplicationCore",
+			"LevelSequence",
+			"MovieScene",
+			"MovieSceneTracks",
 		});
 	}
 }

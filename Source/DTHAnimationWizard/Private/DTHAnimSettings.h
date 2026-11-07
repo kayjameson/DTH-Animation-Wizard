@@ -32,6 +32,10 @@ public:
 	UPROPERTY(config, EditAnywhere, Category = "Testing", meta = (DisplayName = "Character Clip Samples File", FilePathFilter = "json"))
 	FFilePath CharacterClipSamplesFile;
 
+	/** Testing only: a multi-actor scene's clips sampled on the character, one file per role (DTH.Anim.P3.*). */
+	UPROPERTY(config, EditAnywhere, Category = "Testing", meta = (DisplayName = "Character Scene Samples Files", FilePathFilter = "json"))
+	TArray<FFilePath> CharacterSceneSamples;
+
 	/** The Pose Wizard's DTH_PoseSamples.json, to check the clip sampler's UnrealPose against the Pose Wizard's. */
 	UPROPERTY(config, EditAnywhere, Category = "Testing", meta = (DisplayName = "Pose Samples File", FilePathFilter = "json"))
 	FFilePath PoseSamplesFile;
