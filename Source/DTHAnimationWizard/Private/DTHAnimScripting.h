@@ -13,7 +13,7 @@ class UDTHAnimScripting : public UBlueprintFunctionLibrary
 	GENERATED_BODY()
 
 public:
-	/** Opens the wizard tab on a page: Settings or Clips. */
+	/** Opens the wizard tab on a page: Settings, Clips or Scenes. */
 	UFUNCTION(BlueprintCallable, Category = "DTH Animation Wizard")
 	static FString OpenWizard(const FString& Page);
 
@@ -27,4 +27,16 @@ public:
 	 */
 	UFUNCTION(BlueprintCallable, Category = "DTH Animation Wizard")
 	static TArray<FString> WriteClips(const FString& MeshPath, const TArray<FString>& Labels, bool bReplace, const FString& Folder = TEXT(""));
+
+	/** The multi-actor scenes whose name contains Filter (all for ""): "scene | pack | role (frames), role (frames)". */
+	UFUNCTION(BlueprintCallable, Category = "DTH Animation Wizard")
+	static TArray<FString> ListScenes(const FString& Filter);
+
+	/**
+	 * Builds a scene: each role's sequence for its character (Roles[i] played by Meshes[i], skeletal mesh paths) and a level
+	 * sequence playing them together, under the settings' Sequence Folder, or Folder if given. The run's report.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "DTH Animation Wizard")
+	static TArray<FString> BuildScene(const FString& Scene, const TArray<FString>& Roles, const TArray<FString>& Meshes, bool bReplace,
+		const FString& Folder = TEXT(""));
 };

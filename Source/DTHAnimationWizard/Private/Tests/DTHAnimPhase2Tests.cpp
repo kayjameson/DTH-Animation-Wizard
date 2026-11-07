@@ -85,6 +85,11 @@ bool FDTHAnimP2Wizard::RunTest(const FString&)
 	TestTrue(TEXT("Clips listed"), Listed.Num() > 0 && !Listed[0].StartsWith(TEXT("ERROR:")));
 	TestEqual(TEXT("The tab lists what scripting lists"), Wizard->NumListed(), Listed.Num());
 	AddInfo(FString::Printf(TEXT("%d clips listed; first: %s"), Listed.Num(), Listed.IsEmpty() ? TEXT("") : *Listed[0]));
+	TestEqual(TEXT("Opens on Scenes"), UDTHAnimScripting::OpenWizard(TEXT("Scenes")), FString(TEXT("Wizard open.")));
+	const TArray<FString> SceneLines = UDTHAnimScripting::ListScenes(TEXT(""));
+	TestTrue(TEXT("Scenes listed"), SceneLines.Num() > 0 && !SceneLines[0].StartsWith(TEXT("ERROR:")));
+	TestEqual(TEXT("The tab lists what scripting lists (scenes)"), Wizard->NumScenes(), SceneLines.Num());
+	AddInfo(FString::Printf(TEXT("%d scenes listed; first: %s"), SceneLines.Num(), SceneLines.IsEmpty() ? TEXT("") : *SceneLines[0]));
 	if (TSharedPtr<SDockTab> Tab = FGlobalTabmanager::Get()->FindExistingLiveTab(FDTHAnimationWizardModule::WizardTabName))
 	{
 		Tab->RequestCloseTab();

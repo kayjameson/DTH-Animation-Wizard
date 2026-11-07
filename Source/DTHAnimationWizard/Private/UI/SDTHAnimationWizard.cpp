@@ -6,6 +6,7 @@
 #include "Engine/SkeletalMesh.h"
 #include "HAL/PlatformApplicationMisc.h"
 #include "IDetailsView.h"
+#include "LevelSequence.h"
 #include "Modules/ModuleManager.h"
 #include "PropertyCustomizationHelpers.h"
 #include "PropertyEditorModule.h"
@@ -40,6 +41,7 @@ bool SDTHAnimationWizard::ShowPage(const FString& Name)
 {
 	if (Name.Equals(TEXT("Settings"), ESearchCase::IgnoreCase)) { CurrentPage = EPage::Settings; return true; }
 	if (Name.Equals(TEXT("Clips"), ESearchCase::IgnoreCase)) { CurrentPage = EPage::Clips; return true; }
+	if (Name.Equals(TEXT("Scenes"), ESearchCase::IgnoreCase)) { CurrentPage = EPage::Scenes; return true; }
 	return false;
 }
 
@@ -63,6 +65,7 @@ void SDTHAnimationWizard::Construct(const FArguments& InArgs)
 				.WidgetIndex_Lambda([this]() { return static_cast<int32>(CurrentPage); })
 				+ SWidgetSwitcher::Slot()[MakeSettingsPage()]
 				+ SWidgetSwitcher::Slot()[MakeClipsPage()]
+				+ SWidgetSwitcher::Slot()[MakeScenesPage()]
 			]
 			+ SVerticalBox::Slot().AutoHeight()
 			[
@@ -85,6 +88,7 @@ void SDTHAnimationWizard::Reload()
 	if (!Index.Load(Settings->SamplesIndex.FilePath, IndexError)) Index = FDTHAnimIndex();
 	if (!Character.IsValid()) Character = Cast<USkeletalMesh>(Settings->Character.TryLoad());
 	RefreshList();
+	RefreshScenes();
 }
 
 TSharedRef<SWidget> SDTHAnimationWizard::MakeStepBar()
@@ -94,6 +98,7 @@ TSharedRef<SWidget> SDTHAnimationWizard::MakeStepBar()
 		.OnValueChanged_Lambda([this](int32 NewValue) { CurrentPage = static_cast<EPage>(NewValue); });
 	Bar->AddSlot(static_cast<int32>(EPage::Settings)).Text(LOCTEXT("StepSettings", "Settings"));
 	Bar->AddSlot(static_cast<int32>(EPage::Clips)).Text(LOCTEXT("StepClips", "Clips"));
+	Bar->AddSlot(static_cast<int32>(EPage::Scenes)).Text(LOCTEXT("StepScenes", "Scenes"));
 	return Bar;
 }
 
@@ -414,6 +419,178 @@ FText SDTHAnimationWizard::GetIndexSummary() const
 	return FText::FromString(FString::Printf(TEXT("%d clips sampled %s%s. %d key morphs, which sequences do not carry. %d ticked."),
 		Index.Clips.Num(), *Index.SampledAt, Index.Errors.IsEmpty() ? TEXT("") : *FString::Printf(TEXT(", %d could not be sampled"), Index.Errors.Num()),
 		WithMorphs, NumChecked()));
+}
+
+// --- Scenes -------------------------------------------------------------------------------------------------------
+
+TSharedRef<SWidget> SDTHAnimationWizard::MakeScenesPage()
+{
+	return SNew(SSplitter)
+		.Orientation(Orient_Horizontal)
+		+ SSplitter::Slot().Value(0.5f)
+		[
+			MakeSection(LOCTEXT("ScenesSection", "Multi-Actor Scenes"),
+				SNew(SVerticalBox)
+				+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 0.f, 0.f, 4.f)
+				[
+					SNew(STextBlock).AutoWrapText(true).Text(LOCTEXT("ScenesHelp",
+						"Clips made to play together: those in one pack whose names differ only in the last word (the role, "
+						"e.g. Female and Male). Pick a scene, give each role a character, and build: each role's sequence is "
+						"written for its character, with a level sequence that plays them together, in sync and in place."))
+				]
+				+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 0.f, 0.f, 4.f)
+				[
+					SNew(SSearchBox)
+					.OnTextChanged_Lambda([this](const FText& Text) { SceneSearch = Text.ToString(); RefreshScenes(); })
+				]
+				+ SVerticalBox::Slot().FillHeight(1.f)
+				[
+					SAssignNew(SceneList, SListView<TSharedPtr<int32>>)
+					.ListItemsSource(&SceneRows)
+					.SelectionMode(ESelectionMode::Single)
+					.OnGenerateRow(this, &SDTHAnimationWizard::MakeSceneRow)
+					.OnSelectionChanged_Lambda([this](TSharedPtr<int32> Row, ESelectInfo::Type)
+					{
+						SelectedScene = Row.IsValid() ? *Row : INDEX_NONE;
+						MakeRolesPanel();
+					})
+				])
+		]
+		+ SSplitter::Slot().Value(0.5f)
+		[
+			SNew(SVerticalBox)
+			+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 0.f, 0.f, 8.f)
+			[
+				MakeSection(LOCTEXT("RolesSection", "Roles"),
+					SNew(SVerticalBox)
+					+ SVerticalBox::Slot().AutoHeight()
+					[
+						SAssignNew(RolesBox, SVerticalBox)
+					]
+					+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 6.f, 0.f, 0.f)
+					[
+						SNew(SHorizontalBox)
+						+ SHorizontalBox::Slot().FillWidth(1.f).VAlign(VAlign_Center)
+						[
+							SNew(SCheckBox)
+							.IsChecked_Lambda([this]() { return bReplace ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; })
+							.OnCheckStateChanged_Lambda([this](ECheckBoxState S) { bReplace = S == ECheckBoxState::Checked; })
+							[
+								SNew(STextBlock).Text(LOCTEXT("ReplaceScene", "Replace what is already written"))
+							]
+						]
+						+ SHorizontalBox::Slot().AutoWidth()
+						[
+							SNew(SButton)
+							.ButtonStyle(FAppStyle::Get(), "PrimaryButton")
+							.Text(LOCTEXT("BuildScene", "Build Scene"))
+							.IsEnabled_Lambda([this]()
+							{
+								if (!Scenes.IsValidIndex(SelectedScene)) return false;
+								for (const FDTHAnimScene::FRole& R : Scenes[SelectedScene].Roles)
+								{
+									const TWeakObjectPtr<USkeletalMesh>* M = RoleCharacters.Find(R.Label);
+									if (!M || !M->IsValid()) return false;
+								}
+								return true;
+							})
+							.OnClicked(this, &SDTHAnimationWizard::OnBuildScene)
+						]
+					])
+			]
+			+ SVerticalBox::Slot().FillHeight(1.f)
+			[
+				MakeSection(LOCTEXT("SceneReportSection", "Report"),
+					SAssignNew(SceneMessageList, SListView<TSharedPtr<FDTHAnimMessage>>)
+					.ListItemsSource(&Messages)
+					.SelectionMode(ESelectionMode::Multi)
+					.OnGenerateRow(this, &SDTHAnimationWizard::MakeMessageRow))
+			]
+		];
+}
+
+TSharedRef<SWidget> SDTHAnimationWizard::MakeRolesPanel()
+{
+	if (!RolesBox.IsValid()) return SNullWidget::NullWidget;
+	RolesBox->ClearChildren();
+	if (!Scenes.IsValidIndex(SelectedScene))
+	{
+		RolesBox->AddSlot().AutoHeight()[SNew(STextBlock).Text(LOCTEXT("PickScene", "Pick a scene on the left."))];
+		return RolesBox.ToSharedRef();
+	}
+	const FDTHAnimScene& Scene = Scenes[SelectedScene];
+	RolesBox->AddSlot().AutoHeight().Padding(0.f, 0.f, 0.f, 4.f)[SNew(STextBlock).Font(FAppStyle::GetFontStyle("NormalFontBold")).Text(FText::FromString(Scene.Name))];
+	for (const FDTHAnimScene::FRole& Role : Scene.Roles)
+	{
+		const FString Label = Role.Label;
+		RolesBox->AddSlot().AutoHeight().Padding(0.f, 2.f)
+		[
+			SNew(SHorizontalBox)
+			+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0.f, 0.f, 8.f, 0.f)
+			[
+				SNew(SBox).WidthOverride(140.f)
+				[
+					SNew(STextBlock).Text(FText::FromString(FString::Printf(TEXT("%s (%d frames)"), *Label, Role.Clip->Frames)))
+				]
+			]
+			+ SHorizontalBox::Slot().FillWidth(1.f)
+			[
+				SNew(SObjectPropertyEntryBox)
+				.AllowedClass(USkeletalMesh::StaticClass())
+				.ObjectPath_Lambda([this, Label]()
+				{
+					const TWeakObjectPtr<USkeletalMesh>* M = RoleCharacters.Find(Label);
+					return M && M->IsValid() ? (*M)->GetPathName() : FString();
+				})
+				.OnObjectChanged_Lambda([this, Label](const FAssetData& Asset) { RoleCharacters.Add(Label, Cast<USkeletalMesh>(Asset.GetAsset())); })
+			]
+		];
+	}
+	return RolesBox.ToSharedRef();
+}
+
+TSharedRef<ITableRow> SDTHAnimationWizard::MakeSceneRow(TSharedPtr<int32> Scene, const TSharedRef<STableViewBase>& Owner)
+{
+	const FDTHAnimScene& S = Scenes[*Scene];
+	FString Roles;
+	for (const FDTHAnimScene::FRole& R : S.Roles) Roles += (Roles.IsEmpty() ? TEXT("") : TEXT(", ")) + R.Label;
+	return SNew(STableRow<TSharedPtr<int32>>, Owner)
+		.Padding(FMargin(4.f, 2.f))
+		[
+			SNew(SVerticalBox)
+			+ SVerticalBox::Slot().AutoHeight()[SNew(STextBlock).Text(FText::FromString(S.Name))]
+			+ SVerticalBox::Slot().AutoHeight()
+			[
+				SNew(STextBlock).ColorAndOpacity(FSlateColor::UseSubduedForeground())
+				.Text(FText::FromString(FString::Printf(TEXT("%s  |  roles: %s"), *S.Roles[0].Clip->Pack(), *Roles)))
+			]
+		];
+}
+
+void SDTHAnimationWizard::RefreshScenes()
+{
+	Scenes = DTHAnimScenes::FromIndex(Index);
+	SceneRows.Reset();
+	for (int32 I = 0; I < Scenes.Num(); ++I)
+	{
+		if (SceneSearch.IsEmpty() || Scenes[I].Name.Contains(SceneSearch)) SceneRows.Add(MakeShared<int32>(I));
+	}
+	SelectedScene = INDEX_NONE;
+	if (SceneList.IsValid()) SceneList->RequestListRefresh();
+	MakeRolesPanel();
+}
+
+FReply SDTHAnimationWizard::OnBuildScene()
+{
+	if (!Scenes.IsValidIndex(SelectedScene)) return FReply::Handled();
+	TMap<FString, USkeletalMesh*> Assigned;
+	for (const TPair<FString, TWeakObjectPtr<USkeletalMesh>>& P : RoleCharacters) if (P.Value.IsValid()) Assigned.Add(P.Key, P.Value.Get());
+	TArray<FDTHAnimMessage> Report;
+	ULevelSequence* Level = DTHAnimScenes::Build(Scenes[SelectedScene], Assigned, GetDefault<UDTHAnimSettings>()->SequenceFolder.Path, bReplace, Report);
+	SetMessages(Report);
+	if (SceneMessageList.IsValid()) SceneMessageList->RequestListRefresh();
+	Status = Level ? FString::Printf(TEXT("Built %s."), *Level->GetPathName()) : TEXT("The scene was not built: see the report.");
+	return FReply::Handled();
 }
 
 #undef LOCTEXT_NAMESPACE
