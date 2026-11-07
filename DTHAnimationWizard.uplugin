@@ -1,0 +1,34 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "0.1.0",
+	"FriendlyName": "DTH Animation Wizard",
+	"Description": "Daz Studio animations for DazToHue Genesis 9 characters: samples each clip frame by frame in Daz and recreates it 1:1 as a bone-track animation sequence with the DTH Pose Wizard's measured solve.",
+	"Category": "Animation",
+	"CreatedBy": "Kay",
+	"CreatedByURL": "",
+	"DocsURL": "",
+	"MarketplaceURL": "",
+	"SupportURL": "",
+	"EngineVersion": "5.8.0",
+	"CanContainContent": false,
+	"IsBetaVersion": true,
+	"IsExperimentalVersion": false,
+	"Installed": false,
+	"Modules": [
+		{
+			"Name": "DTHAnimationWizard",
+			"Type": "Editor",
+			"LoadingPhase": "Default",
+			"PlatformAllowList": [
+				"Win64"
+			]
+		}
+	],
+	"Plugins": [
+		{
+			"Name": "DTHPoseWizard",
+			"Enabled": true
+		}
+	]
+}

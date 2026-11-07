@@ -1,0 +1,256 @@
+
+// DTH Animation Wizard: Daz Studio clip sampler.
+//
+// Records, in Daz's own evaluation (keys, interpolation, limits, ERC and all), where every bone of a base Genesis 9 is
+// on every frame of each animation clip, and writes one samples file per clip for the Unreal plugin, which recreates
+// each frame with the Pose Wizard's measured solve (DTHPoseCore). Nothing in the content library is changed or saved;
+// the scene is replaced by a fresh Genesis 9, so the script stops if the open scene has unsaved changes.
+//
+// A clip is a pose preset (preset_pose) whose channels carry keys over time. It is applied to the figure at frame 0;
+// every frame from 0 to its last key is sampled; then its keys are taken off and the figure is set back, so the next
+// clip starts from the same rest.
+//
+// Each role holds "rest" (UnrealPose, DTH ROM frame 1: the rest the solve measures from, as in the Pose Wizard),
+// "zero" (the figure as loaded) and "frames". Positions are Daz world space (cm, Y up), rotations Daz world-space
+// quaternions [x, y, z, w], in the format of the
+// Pose Wizard's samples (DTH_SamplePoses.dsa), so the plugin reads them with the same parser.
+//
+// Arguments (a global `args`, or the script's first argument):
+//   args.files    clip files (absolute, or relative to a content directory). Default: every clip in a folder named
+//                 "Animations" under People/Genesis 9* in every content directory.
+//   args.out      output folder (default: Documents/DTH Animation Wizard)
+//   args.last     last frame to sample, for quick checks (default: the clip's last key)
+//   args.figure   load this figure or scene file instead of base Genesis 9
+//   args.resume   true: skip clips whose samples file is already there
+//   args.force    true: replace the open scene even if it has unsaved changes (for runs that load their own scene)
+(function(){
+	var passed = getArguments();
+	var A = (typeof args !== "undefined" && args) ? args : (passed.length && typeof passed[0] == "object" ? passed[0] : {});
+	var OUT = A.out || (App.getDocumentsPath() + "/DTH Animation Wizard");
+	var FIGURE_FILE = A.figure || "People/Genesis 9/Genesis 9.duf";
+	var CHANNELS = ["XRotate", "YRotate", "ZRotate", "XTranslate", "YTranslate", "ZTranslate"];
+	// Daz keeps keys inside the animation range: open it wide before a clip is applied.
+	var MAX_FRAMES = 100000;
+	var TICKS_PER_SECOND = 4800;
+	// DazToHue's Genesis 9 ROM: its frame 1 is UnrealPose, the pose DTH's UE bind pose is (the Pose Wizard's rest).
+	var ROM_FILE = "DazToHue/Poses/Genesis 9/DQS/G9 DQS JCM FAC - Base.duf";
+	var result = {messages: [], clips: [], errors: []};
+
+	function note(s) { result.messages.push(s); print(s); }
+	function exists(path) { return new DzFileInfo(path).exists(); }
+	function writeText(path, text) { var f = new DzFile(path); if (!f.open(DzFile.WriteOnly | DzFile.Truncate)) return false; f.write(text); f.close(); return true; }
+	function round(v, d) { var m = Math.pow(10, d); return Math.round(v * m) / m; }
+	function ticks(t) { return parseInt("" + t, 10); }
+
+	function contentPath(rel) {
+		if (/^[A-Za-z]:[\/\\]|^\//.test(rel)) return exists(rel) ? rel : "";
+		var mgr = App.getContentMgr();
+		for (var i = 0; i < mgr.getNumContentDirectories(); i++) {
+			var p = mgr.getContentDirectoryPath(i) + "/" + rel;
+			if (exists(p)) return p;
+		}
+		return "";
+	}
+
+	function mainFigure() {
+		for (var i = 0; i < Scene.getNumSkeletons(); i++) if (Scene.getSkeleton(i).getName() == "Genesis9") return Scene.getSkeleton(i);
+		return null;
+	}
+	function channel(b, c) {
+		if (c == "XRotate") return b.getXRotControl(); if (c == "YRotate") return b.getYRotControl();
+		if (c == "ZRotate") return b.getZRotControl(); if (c == "XTranslate") return b.getXPosControl();
+		if (c == "YTranslate") return b.getYPosControl(); return b.getZPosControl();
+	}
+
+	// The figure's bones, channels and morphs, looked up once.
+	var REFS = null;
+	function figureRefs() {
+		if (REFS) return REFS;
+		var fig = mainFigure(), all = [fig].concat(fig.getAllBones()), bones = [], morphs = [];
+		for (var i = 0; i < all.length; i++) {
+			var b = all[i], parent = b.getNodeParent(), ch = [];
+			for (var c = 0; c < CHANNELS.length; c++) ch.push(channel(b, CHANNELS[c]));
+			bones.push({node: b, name: b.getName(), parent: parent && parent.inherits("DzBone") ? parent.getName() : "", channels: ch});
+		}
+		var obj = fig.getObject();
+		for (var m = 0; obj && m < obj.getNumModifiers(); m++) {
+			var mod = obj.getModifier(m);
+			if (mod && mod.inherits("DzMorph")) morphs.push([mod.getName(), mod.getValueControl()]);
+		}
+		REFS = {bones: bones, morphs: morphs};
+		return REFS;
+	}
+
+	// Every bone's world transform and evaluated local channels, and every morph that is not zero, at the current time.
+	function sample() {
+		var refs = figureRefs(), bones = {}, morphs = {};
+		for (var i = 0; i < refs.bones.length; i++) {
+			var b = refs.bones[i], p = b.node.getWSPos(), r = b.node.getWSRot(), local = [];
+			for (var c = 0; c < b.channels.length; c++) local.push(round(b.channels[c].getValue(), 6));
+			bones[b.name] = {parent: b.parent, pos: [round(p.x, 6), round(p.y, 6), round(p.z, 6)],
+				rot: [round(r.x, 8), round(r.y, 8), round(r.z, 8), round(r.w, 8)], local: local};
+		}
+		for (var m = 0; m < refs.morphs.length; m++) {
+			var v = refs.morphs[m][1].getValue();
+			if (Math.abs(v) > 1e-6) morphs[refs.morphs[m][0]] = round(v, 6);
+		}
+		return {bones: bones, morphs: morphs};
+	}
+
+	// Numeric properties of every figure, bone and morph, to set the figure back after a clip.
+	function snapshot() {
+		var snap = [];
+		function add(p) { if (p && p.inherits("DzNumericProperty")) snap.push([p, p.getRawValue(), p.getNumKeys ? p.getNumKeys() : 0]); }
+		for (var s = 0; s < Scene.getNumSkeletons(); s++) {
+			var fig = Scene.getSkeleton(s), nodes = [fig].concat(fig.getAllBones());
+			for (var i = 0; i < nodes.length; i++)
+				for (var n = 0; n < nodes[i].getNumProperties(); n++) add(nodes[i].getProperty(n));
+			var obj = fig.getObject();
+			for (var m = 0; obj && m < obj.getNumModifiers(); m++) {
+				var mod = obj.getModifier(m);
+				if (mod && mod.inherits("DzMorph")) add(mod.getValueControl());
+			}
+		}
+		return snap;
+	}
+	// Takes the keys off every property the clip keyed (its key count changed), then sets the values back. Daz holds a
+	// default key on many properties (every morph), which are left as they are.
+	function restore(snap) {
+		for (var i = 0; i < snap.length; i++) {
+			var p = snap[i][0];
+			if (p.getNumKeys && p.getNumKeys() != snap[i][2]) p.deleteAllKeys();
+			if (p.getRawValue() != snap[i][1]) p.setValue(snap[i][1]);
+		}
+	}
+
+	// Properties the clip keyed: the last key (in frames), and the keyed morphs, which v1 does not recreate.
+	function keyInfo(snap, step) {
+		var last = 0, keyedMorphs = [], keyedBones = 0;
+		for (var i = 0; i < snap.length; i++) {
+			var p = snap[i][0], n = p.getNumKeys ? p.getNumKeys() : 0;
+			if (n == snap[i][2]) continue;
+			for (var k = 0; k < n; k++) last = Math.max(last, Math.round(ticks(p.getKeyTime(k)) / step));
+			var owner = p.getOwner ? p.getOwner() : null;
+			if (owner && owner.inherits("DzMorph")) keyedMorphs.push(owner.getName());
+			else if (owner && owner.inherits("DzBone")) keyedBones++;
+		}
+		return {last: last, keyedMorphs: keyedMorphs, keyedChannels: keyedBones};
+	}
+
+	function loadFigure() {
+		if (Scene.needsSave() && !A.force) { result.error = "The open scene has unsaved changes. Save or close it, then run this again."; return false; }
+		Scene.clear();
+		REFS = null;
+		var fig = contentPath(FIGURE_FILE);
+		if (!fig) { result.error = "Genesis 9 is not installed (" + FIGURE_FILE + ")."; return false; }
+		App.getContentMgr().openFile(fig, true);
+		if (!mainFigure()) { result.error = "Loading " + FIGURE_FILE + " did not give a Genesis9 figure."; return false; }
+		var range = new DzTimeRange(0, MAX_FRAMES * Scene.getTimeStep());
+		Scene.setAnimRange(range); Scene.setPlayRange(range);
+		Scene.setTime(0);
+		return true;
+	}
+
+	// Every clip under People/Genesis 9*/.../Animations in every content directory.
+	function findClips() {
+		var out = [], seen = {}, mgr = App.getContentMgr();
+		function walk(dir, rel) {
+			var d = new DzDir(dir), files = d.entryList(["*.duf"], DzDir.Files, DzDir.Name);
+			for (var i = 0; i < files.length; i++) if (!seen[rel + "/" + files[i]]) { seen[rel + "/" + files[i]] = true; out.push({pack: rel, file: dir + "/" + files[i]}); }
+			var dirs = d.entryList(DzDir.Dirs | DzDir.NoDotAndDotDot, DzDir.Name);
+			for (var j = 0; j < dirs.length; j++) walk(dir + "/" + dirs[j], rel + "/" + dirs[j]);
+		}
+		for (var c = 0; c < mgr.getNumContentDirectories(); c++) {
+			var people = mgr.getContentDirectoryPath(c) + "/People";
+			if (!exists(people)) continue;
+			var figs = new DzDir(people).entryList(DzDir.Dirs | DzDir.NoDotAndDotDot, DzDir.Name);
+			for (var f = 0; f < figs.length; f++)
+				if (figs[f].indexOf("Genesis 9") == 0 && exists(people + "/" + figs[f] + "/Animations"))
+					walk(people + "/" + figs[f] + "/Animations", "People/" + figs[f] + "/Animations");
+		}
+		return out;
+	}
+
+	function safeName(s) { return s.replace(/[^A-Za-z0-9_\-]+/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, ""); }
+
+	function sampleClip(clip, rest, zero, snap) {
+		var info = new DzFileInfo(clip.file), label = info.completeBaseName();
+		var outFile = OUT + "/clips/" + safeName(clip.pack + "_" + label) + ".json";
+		if (A.resume && exists(outFile)) { result.clips.push({label: label, file: clip.file, samples: outFile, skipped: "already sampled"}); return; }
+		var main = mainFigure(), nodes = Scene.getNumNodes(), step = ticks(Scene.getTimeStep());
+		Scene.setTime(0);
+		Scene.selectAllNodes(false); main.select(true); Scene.setPrimarySelection(main);
+		var started = new Date().getTime();
+		var ok = App.getContentMgr().openFile(clip.file, true);
+		if (Scene.getNumNodes() != nodes) {
+			for (var n = Scene.getNumNodes() - 1; n >= nodes; n--) Scene.removeNode(Scene.getNode(n));
+			restore(snap);
+			result.errors.push(clip.file + ": not an animation clip (it adds items to the scene).");
+			return;
+		}
+		if (!ok) { restore(snap); result.errors.push(clip.file + ": Daz could not load it."); return; }
+		var keys = keyInfo(snap, step);
+		var last = typeof A.last == "number" ? Math.min(A.last, keys.last) : keys.last;
+		var loaded = new Date().getTime(), frames = [];
+		for (var fr = 0; fr <= last; fr++) {
+			Scene.setTime(fr * Scene.getTimeStep());
+			frames.push(sample());
+		}
+		var sampled = new Date().getTime();
+		Scene.setTime(0);
+		restore(snap);
+		var back = sample(), drift = 0;
+		for (var b in zero.bones) {
+			var p = zero.bones[b].pos, q = back.bones[b] ? back.bones[b].pos : p;
+			drift = Math.max(drift, Math.abs(p[0] - q[0]), Math.abs(p[1] - q[1]), Math.abs(p[2] - q[2]));
+		}
+		var doc = {format: "DTH Animation Samples", version: 1, sampledAt: new Date().toISOString(), dazVersion: App.longVersionString,
+			units: "cm, Y up, Daz world space", figure: FIGURE_FILE,
+			clip: {label: label, pack: clip.pack, file: clip.file},
+			fps: TICKS_PER_SECOND / step, firstFrame: 0, lastFrame: last, lastKey: keys.last,
+			keyedChannels: keys.keyedChannels, keyedMorphs: keys.keyedMorphs,
+			timing: {loadMs: loaded - started, sampleMs: sampled - loaded},
+			restoreDriftCm: round(drift, 6),
+			roles: [{label: "", figure: "Genesis9", rest: rest, zero: zero, frames: frames}]};
+		new DzDir(OUT + "/clips").mkpath(OUT + "/clips");
+		if (!writeText(outFile, JSON.stringify(doc))) { result.errors.push(clip.file + ": could not write " + outFile); return; }
+		result.clips.push({label: label, file: clip.file, samples: outFile, frames: last + 1, fps: doc.fps,
+			sampleMs: sampled - loaded, keyedMorphs: keys.keyedMorphs.length, restoreDriftCm: doc.restoreDriftCm});
+		note(label + ": " + (last + 1) + " frames in " + (sampled - loaded) + " ms.");
+	}
+
+	// UnrealPose: DTH's ROM applied, frame 1 sampled, the ROM taken off again.
+	function sampleUnrealPose(snap) {
+		var rom = contentPath(ROM_FILE), main = mainFigure();
+		if (!rom) { result.error = "DazToHue's Genesis 9 ROM preset (" + ROM_FILE + ") is missing."; return null; }
+		Scene.setTime(0);
+		Scene.selectAllNodes(false); main.select(true); Scene.setPrimarySelection(main);
+		App.getContentMgr().openFile(rom, true);
+		Scene.setTime(Scene.getTimeStep());
+		var s = sample();
+		Scene.setTime(0);
+		restore(snap);
+		return s;
+	}
+
+	if (!loadFigure()) return result;
+	var clips = [];
+	if (A.files) {
+		for (var f = 0; f < A.files.length; f++) {
+			var path = contentPath(A.files[f]);
+			if (path) clips.push({pack: new DzFileInfo(path).path().replace(/^.*\/People\//, "People/"), file: path});
+			else result.errors.push(A.files[f] + ": not found in any content directory.");
+		}
+	}
+	else clips = findClips();
+	var zero = sample(), rest = sampleUnrealPose(snapshot());
+	if (!rest) return result;
+	// Taken after the ROM came off: its keys on the face morphs leave their key counts changed.
+	var snap = snapshot();
+	for (var c = 0; c < clips.length; c++) sampleClip(clips[c], rest, zero, snap);
+	var index = {format: "DTH Animation Samples Index", version: 1, sampledAt: new Date().toISOString(), clips: result.clips, errors: result.errors};
+	writeText(OUT + "/DTH_AnimationSamples.json", JSON.stringify(index));
+	result.file = OUT + "/DTH_AnimationSamples.json";
+	note("Sampled " + result.clips.length + " clips; " + result.errors.length + " problems.");
+	return result;
+})();
