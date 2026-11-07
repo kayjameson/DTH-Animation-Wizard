@@ -81,7 +81,12 @@ namespace DTHAnimScenes
 
 		// The level sequence.
 		const FString Name = TEXT("LS_") + DTHPoseCharacter::AssetName(Scene.Name);
-		const FString PackageName = Root / TEXT("Scenes") / Name;
+		// Per pack, as the clips' sequences are: scene names repeat across packs.
+		FString PackFolder;
+		TArray<FString> PackParts;
+		Scene.Roles[0].Clip->Pack().ParseIntoArray(PackParts, TEXT("/"));
+		for (const FString& P : PackParts) PackFolder /= DTHPoseCharacter::AssetName(P);
+		const FString PackageName = Root / TEXT("Scenes") / PackFolder / Name;
 		if (FPackageName::DoesPackageExist(PackageName))
 		{
 			UObject* Old = LoadObject<UObject>(nullptr, *(PackageName + TEXT(".") + Name));

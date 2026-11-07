@@ -75,9 +75,23 @@ TArray<const FDTHAnimIndexEntry*> FDTHAnimIndex::Find(const FString& Filter) con
 	return Out;
 }
 
-const FDTHAnimIndexEntry* FDTHAnimIndex::FindLabel(const FString& Label) const
+const FDTHAnimIndexEntry* FDTHAnimIndex::FindLabel(const FString& LabelOrKey, TArray<FString>* OutAmbiguous) const
 {
-	return Clips.FindByPredicate([&Label](const FDTHAnimIndexEntry& C) { return C.Label == Label; });
+	if (const FDTHAnimIndexEntry* ByKey = Clips.FindByPredicate([&LabelOrKey](const FDTHAnimIndexEntry& C) { return C.Key() == LabelOrKey; }))
+	{
+		return ByKey;
+	}
+	const FDTHAnimIndexEntry* Found = nullptr;
+	int32 Count = 0;
+	for (const FDTHAnimIndexEntry& C : Clips)
+	{
+		if (C.Label != LabelOrKey) continue;
+		Found = &C;
+		++Count;
+		if (OutAmbiguous) OutAmbiguous->Add(C.Key());
+	}
+	if (Count == 1) { if (OutAmbiguous) OutAmbiguous->Reset(); return Found; }
+	return nullptr;
 }
 
 FString FDTHAnimMessage::ToLine() const

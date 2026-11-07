@@ -22,6 +22,9 @@ struct FDTHAnimScene
 
 	FString Name;
 	TArray<FRole> Roles;
+
+	/** "<pack>/<name>": unique, where names alone repeat across packs. */
+	FString Key() const { return Roles.IsEmpty() ? Name : Roles[0].Clip->Pack() / Name; }
 };
 
 namespace DTHAnimScenes
@@ -33,7 +36,7 @@ namespace DTHAnimScenes
 	TArray<FDTHAnimScene> FromIndex(const FDTHAnimIndex& Index);
 
 	/**
-	 * Writes each role's sequence for the character assigned to it (by role label) and builds Root/Scenes/LS_<scene>:
+	 * Writes each role's sequence for the character assigned to it (by role label) and builds Root/Scenes/<pack>/LS_<scene>:
 	 * one spawnable actor per role with its character, its sequence on an animation track from frame 0, every actor at
 	 * the same origin (the samples carry their placement), the playback range the longest role, the display rate the
 	 * clips'. bReplace replaces sequences and the level sequence already there. Null and an error line on failure.

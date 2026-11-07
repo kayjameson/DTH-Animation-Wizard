@@ -15,7 +15,7 @@ Each clip is sampled frame by frame in Daz Studio and recreated in Unreal with t
 2. **Open Tools > DazToHue > DTH Animation Wizard.**
    - **Settings:** check *Daz Samples Index* and *Sequence Folder*.
    - **Clips:** tick clips, pick a character, and write. Each clip becomes `Sequence Folder/<character>/<pack>/A_<clip>`: one key per Daz frame at the clip's frame rate, bone tracks only.
-   - **Scenes:** clips made to play together (same pack, names differing only in the last word, e.g. `... Female` and `... Male`). Pick a scene, give each role a character, and build. Each role's sequence is written for its character, plus `Sequence Folder/Scenes/LS_<scene>`, a level sequence that plays them together from frame 0. Every actor starts at the sequence's origin: the samples carry their placement relative to each other.
+   - **Scenes:** clips made to play together (same pack, names differing only in the last word, e.g. `... Female` and `... Male`). Pick a scene, give each role a character, and build. Each role's sequence is written for its character, plus `Sequence Folder/Scenes/<pack>/LS_<scene>`, a level sequence that plays them together from frame 0. Every actor starts at the sequence's origin: the samples carry their placement relative to each other.
 3. **Play** a sequence on the character's body mesh (Animation Mode "Use Animation Asset", or an Animation track in Sequencer). Keep the character's DTH post-process blueprint on: it supplies the twist bones and the joint correctives.
 
 Scripting (Python `unreal.DTHAnimScripting`, or Blueprints): `OpenWizard`, `ListClips`, `WriteClips`, `ListScenes`, `BuildScene`.

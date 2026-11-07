@@ -218,7 +218,7 @@ TSharedRef<SWidget> SDTHAnimationWizard::MakeClipsPage()
 						.Text(LOCTEXT("TickAll", "Tick Listed"))
 						.OnClicked_Lambda([this]()
 						{
-							for (const TSharedPtr<FRow>& R : Rows) { R->bChecked = true; Checked.Add(R->Clip->Label); }
+							for (const TSharedPtr<FRow>& R : Rows) { R->bChecked = true; Checked.Add(R->Clip->Key()); }
 							return FReply::Handled();
 						})
 					]
@@ -311,7 +311,7 @@ TSharedRef<ITableRow> SDTHAnimationWizard::MakeClipRow(TSharedPtr<FRow> Row, con
 				.OnCheckStateChanged_Lambda([this, Row](ECheckBoxState S)
 				{
 					Row->bChecked = S == ECheckBoxState::Checked;
-					if (Row->bChecked) Checked.Add(Row->Clip->Label); else Checked.Remove(Row->Clip->Label);
+					if (Row->bChecked) Checked.Add(Row->Clip->Key()); else Checked.Remove(Row->Clip->Key());
 				})
 			]
 			+ SHorizontalBox::Slot().FillWidth(1.f)
@@ -379,7 +379,7 @@ void SDTHAnimationWizard::RefreshList()
 	{
 		TSharedPtr<FRow> R = MakeShared<FRow>();
 		R->Clip = C;
-		R->bChecked = Checked.Contains(C->Label);
+		R->bChecked = Checked.Contains(C->Key());
 		Rows.Add(R);
 	}
 	if (ClipList.IsValid()) ClipList->RequestListRefresh();
@@ -395,7 +395,7 @@ void SDTHAnimationWizard::SetMessages(const TArray<FDTHAnimMessage>& Report)
 int32 SDTHAnimationWizard::NumChecked() const
 {
 	int32 N = 0;
-	for (const FDTHAnimIndexEntry& C : Index.Clips) if (Checked.Contains(C.Label) && !C.Samples.IsEmpty()) ++N;
+	for (const FDTHAnimIndexEntry& C : Index.Clips) if (Checked.Contains(C.Key()) && !C.Samples.IsEmpty()) ++N;
 	return N;
 }
 
@@ -403,7 +403,7 @@ FReply SDTHAnimationWizard::OnWrite()
 {
 	if (!Character.IsValid()) return FReply::Handled();
 	TArray<const FDTHAnimIndexEntry*> Clips;
-	for (const FDTHAnimIndexEntry& C : Index.Clips) if (Checked.Contains(C.Label) && !C.Samples.IsEmpty()) Clips.Add(&C);
+	for (const FDTHAnimIndexEntry& C : Index.Clips) if (Checked.Contains(C.Key()) && !C.Samples.IsEmpty()) Clips.Add(&C);
 	TArray<FDTHAnimMessage> Report;
 	const bool bOk = DTHAnimBatch::WriteClips(*Character, Clips, GetDefault<UDTHAnimSettings>()->SequenceFolder.Path, bReplace, Report);
 	SetMessages(Report);

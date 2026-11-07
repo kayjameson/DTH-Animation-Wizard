@@ -70,7 +70,7 @@ private:
 	TWeakObjectPtr<USkeletalMesh> Character;
 
 	TArray<TSharedPtr<FRow>> Rows;
-	/** Ticks by clip label, kept across searches. */
+	/** Ticks by clip key (pack/label), kept across searches. */
 	TSet<FString> Checked;
 	TSharedPtr<SListView<TSharedPtr<FRow>>> ClipList;
 	TArray<TSharedPtr<FDTHAnimMessage>> Messages;

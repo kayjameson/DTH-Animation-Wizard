@@ -17,6 +17,8 @@ struct FDTHAnimIndexEntry
 
 	/** The clip's pack folder below People/<figure>/Animations, e.g. "AdultDazAnimation". */
 	FString Pack() const;
+	/** "<pack>/<label>": unique, where labels alone repeat across packs. */
+	FString Key() const { return Pack() / Label; }
 };
 
 /** The sampler's index of sampled clips. */
@@ -30,7 +32,8 @@ struct FDTHAnimIndex
 	bool Load(const FString& InFile, FString& OutError);
 	/** The clips whose label or pack contains Filter (all for ""). */
 	TArray<const FDTHAnimIndexEntry*> Find(const FString& Filter) const;
-	const FDTHAnimIndexEntry* FindLabel(const FString& Label) const;
+	/** A clip by key ("<pack>/<label>"), or by label when only one clip has it. Null (and the candidates in OutAmbiguous) if not. */
+	const FDTHAnimIndexEntry* FindLabel(const FString& LabelOrKey, TArray<FString>* OutAmbiguous = nullptr) const;
 };
 
 /** A line of a run's report. */

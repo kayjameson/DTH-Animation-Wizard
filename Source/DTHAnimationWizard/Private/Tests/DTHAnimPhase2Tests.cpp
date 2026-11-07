@@ -39,7 +39,9 @@ bool FDTHAnimP2Batch::RunTest(const FString&)
 	FString Error;
 	if (!Index.Load(S->SamplesIndex.FilePath, Error)) { AddError(Error); return false; }
 	TArray<const FDTHAnimIndexEntry*> Clips;
-	for (const FDTHAnimIndexEntry& C : Index.Clips) if (Clips.Num() < BatchClips && !C.Samples.IsEmpty()) Clips.Add(&C);
+	// -DTHAnimBatchAll: the whole library, to check the batch at full size.
+	const int32 Limit = FParse::Param(FCommandLine::Get(), TEXT("DTHAnimBatchAll")) ? MAX_int32 : BatchClips;
+	for (const FDTHAnimIndexEntry& C : Index.Clips) if (Clips.Num() < Limit && !C.Samples.IsEmpty()) Clips.Add(&C);
 	AddInfo(FString::Printf(TEXT("Index %s: %d clips, %d not sampled. Writing the first %d."), *Index.File, Index.Clips.Num(), Index.Errors.Num(), Clips.Num()));
 
 	auto Run = [&](bool bReplace, TArray<UAnimSequence*>& Out)
@@ -59,7 +61,8 @@ bool FDTHAnimP2Batch::RunTest(const FString&)
 	{
 		const FString Expected = DTHAnimBatch::PackagePath(*Mesh, *Clips[I], Root);
 		TestEqual(*FString::Printf(TEXT("%s: path"), *Clips[I]->Label), First[I]->GetOutermost()->GetName(), Expected);
-		TestEqual(*FString::Printf(TEXT("%s: one key per sampled frame"), *Clips[I]->Label), First[I]->GetNumberOfSampledKeys(), Clips[I]->Frames);
+		// A one-frame clip spans frame 0 to 1 (the shared writer: two equal keys), as a single pose does.
+		TestEqual(*FString::Printf(TEXT("%s: one key per sampled frame"), *Clips[I]->Label), First[I]->GetNumberOfSampledKeys(), FMath::Max(Clips[I]->Frames, 2));
 		TestEqual(*FString::Printf(TEXT("%s: frame rate"), *Clips[I]->Label), First[I]->GetSamplingFrameRate().AsDecimal(), Clips[I]->Fps);
 	}
 	if (!Run(true, Second)) return false;
@@ -67,7 +70,7 @@ bool FDTHAnimP2Batch::RunTest(const FString&)
 	{
 		const FString Path = DTHAnimBatch::PackagePath(*Mesh, *Clips[I], Root);
 		TestFalse(*FString::Printf(TEXT("%s: replaced, not numbered"), *Clips[I]->Label), FPackageName::DoesPackageExist(Path + TEXT("_2")));
-		TestEqual(*FString::Printf(TEXT("%s: same keys after replacing"), *Clips[I]->Label), Second[I]->GetNumberOfSampledKeys(), Clips[I]->Frames);
+		TestEqual(*FString::Printf(TEXT("%s: same keys after replacing"), *Clips[I]->Label), Second[I]->GetNumberOfSampledKeys(), FMath::Max(Clips[I]->Frames, 2));
 	}
 	Run(false, Third);
 	TestEqual(TEXT("Without replace, nothing is written again"), Third.Num(), 0);

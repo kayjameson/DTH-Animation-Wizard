@@ -17,23 +17,23 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "DTH Animation Wizard")
 	static FString OpenWizard(const FString& Page);
 
-	/** The sampled clips whose label or pack contains Filter (all for ""): "label | pack | frames | fps | keyed morphs". */
+	/** The sampled clips whose label or pack contains Filter (all for ""): "label | pack | frames | fps | keyed morphs | key". */
 	UFUNCTION(BlueprintCallable, Category = "DTH Animation Wizard")
 	static TArray<FString> ListClips(const FString& Filter);
 
 	/**
-	 * Writes the clips (by label) as sequences for the character (a DTH Genesis 9 skeletal mesh path) under the
+	 * Writes the clips (by key "<pack>/<label>", or by label where it is unique) as sequences for the character (a DTH Genesis 9 skeletal mesh path) under the
 	 * settings' Sequence Folder, or Folder if given. bReplace replaces sequences already there. The run's report.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "DTH Animation Wizard")
 	static TArray<FString> WriteClips(const FString& MeshPath, const TArray<FString>& Labels, bool bReplace, const FString& Folder = TEXT(""));
 
-	/** The multi-actor scenes whose name contains Filter (all for ""): "scene | pack | role (frames), role (frames)". */
+	/** The multi-actor scenes whose name contains Filter (all for ""): "scene | pack | role (frames), role (frames) | key". */
 	UFUNCTION(BlueprintCallable, Category = "DTH Animation Wizard")
 	static TArray<FString> ListScenes(const FString& Filter);
 
 	/**
-	 * Builds a scene: each role's sequence for its character (Roles[i] played by Meshes[i], skeletal mesh paths) and a level
+	 * Builds a scene (by key "<pack>/<name>", or by name where it is unique): each role's sequence for its character (Roles[i] played by Meshes[i], skeletal mesh paths) and a level
 	 * sequence playing them together, under the settings' Sequence Folder, or Folder if given. The run's report.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "DTH Animation Wizard")

@@ -25,7 +25,7 @@ TArray<FString> UDTHAnimScripting::ListClips(const FString& Filter)
 	TArray<FString> Out;
 	for (const FDTHAnimIndexEntry* C : Index.Find(Filter))
 	{
-		Out.Add(FString::Printf(TEXT("%s | %s | %d | %g | %d"), *C->Label, *C->Pack(), C->Frames, C->Fps, C->KeyedMorphs));
+		Out.Add(FString::Printf(TEXT("%s | %s | %d | %g | %d | %s"), *C->Label, *C->Pack(), C->Frames, C->Fps, C->KeyedMorphs, *C->Key()));
 	}
 	return Out;
 }
@@ -41,7 +41,9 @@ TArray<FString> UDTHAnimScripting::WriteClips(const FString& MeshPath, const TAr
 	TArray<const FDTHAnimIndexEntry*> Clips;
 	for (const FString& L : Labels)
 	{
-		if (const FDTHAnimIndexEntry* C = Index.FindLabel(L)) Clips.Add(C);
+		TArray<FString> Ambiguous;
+		if (const FDTHAnimIndexEntry* C = Index.FindLabel(L, &Ambiguous)) Clips.Add(C);
+		else if (Ambiguous.Num() > 1) Out.Add(FString::Printf(TEXT("ERROR: %d clips are called %s; name one by pack: %s."), Ambiguous.Num(), *L, *FString::Join(Ambiguous, TEXT(", "))));
 		else Out.Add(FString::Printf(TEXT("ERROR: No sampled clip %s."), *L));
 	}
 	TArray<FDTHAnimMessage> Report;
@@ -61,7 +63,7 @@ TArray<FString> UDTHAnimScripting::ListScenes(const FString& Filter)
 		if (!Filter.IsEmpty() && !S.Name.Contains(Filter)) continue;
 		FString Roles;
 		for (const FDTHAnimScene::FRole& R : S.Roles) Roles += FString::Printf(TEXT("%s%s (%d)"), Roles.IsEmpty() ? TEXT("") : TEXT(", "), *R.Label, R.Clip->Frames);
-		Out.Add(FString::Printf(TEXT("%s | %s | %s"), *S.Name, *S.Roles[0].Clip->Pack(), *Roles));
+		Out.Add(FString::Printf(TEXT("%s | %s | %s | %s"), *S.Name, *S.Roles[0].Clip->Pack(), *Roles, *S.Key()));
 	}
 	return Out;
 }
@@ -74,8 +76,14 @@ TArray<FString> UDTHAnimScripting::BuildScene(const FString& Scene, const TArray
 	FString Error;
 	if (!Index.Load(GetDefault<UDTHAnimSettings>()->SamplesIndex.FilePath, Error)) return {TEXT("ERROR: ") + Error};
 	const TArray<FDTHAnimScene> Scenes = DTHAnimScenes::FromIndex(Index);
-	const FDTHAnimScene* Found = Scenes.FindByPredicate([&Scene](const FDTHAnimScene& S) { return S.Name == Scene; });
-	if (!Found) return {FString::Printf(TEXT("ERROR: No scene %s."), *Scene)};
+	const FDTHAnimScene* Found = Scenes.FindByPredicate([&Scene](const FDTHAnimScene& S) { return S.Key() == Scene; });
+	if (!Found)
+	{
+		TArray<FString> Named;
+		for (const FDTHAnimScene& S : Scenes) if (S.Name == Scene) { Named.Add(S.Key()); Found = &S; }
+		if (Named.Num() > 1) return {FString::Printf(TEXT("ERROR: %d scenes are called %s; name one by pack: %s."), Named.Num(), *Scene, *FString::Join(Named, TEXT(", ")))};
+		if (!Found) return {FString::Printf(TEXT("ERROR: No scene %s."), *Scene)};
+	}
 	TMap<FString, USkeletalMesh*> Assigned;
 	for (int32 I = 0; I < Roles.Num(); ++I)
 	{

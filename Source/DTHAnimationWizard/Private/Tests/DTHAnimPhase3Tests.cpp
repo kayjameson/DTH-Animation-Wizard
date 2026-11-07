@@ -260,7 +260,7 @@ bool FDTHAnimP3SameAsOneScene::RunTest(const FString&)
 	TArray<FString> Labels;
 	FParse::Value(FCommandLine::Get(), TEXT("DTHAnimTwoFigureClips="), Text, false);
 	Text.ParseIntoArray(Labels, TEXT(","));
-	if (Labels.Num() != 2) { AddError(TEXT("-DTHAnimTwoFigureClips=<label A>,<label B>")); return false; }
+	if (Labels.Num() != 2) { AddError(TEXT("-DTHAnimTwoFigureClips=<clip A>,<clip B> (key pack/label, or a unique label)")); return false; }
 	FDTHAnimClip Separate[2];
 	for (int32 I = 0; I < 2; ++I)
 	{
