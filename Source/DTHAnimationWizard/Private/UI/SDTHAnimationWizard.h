@@ -29,6 +29,8 @@ public:
 	int32 NumListed() const { return Rows.Num(); }
 	/** How many multi-actor scenes the Scenes page lists. */
 	int32 NumScenes() const { return SceneRows.Num(); }
+	/** Selects a listed scene and casts Mesh in every role (for scripting, tests and screenshots). */
+	void PreviewScene(int32 Row, USkeletalMesh* Mesh);
 
 private:
 	enum class EPage : int32 { Settings, Clips, Scenes, Count };

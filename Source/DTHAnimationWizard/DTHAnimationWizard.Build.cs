@@ -1,4 +1,4 @@
-using UnrealBuildTool;
+﻿using UnrealBuildTool;
 
 public class DTHAnimationWizard : ModuleRules
 {
@@ -29,6 +29,7 @@ public class DTHAnimationWizard : ModuleRules
 			"WorkspaceMenuStructure",
 			"PropertyEditor",
 			"ApplicationCore",
+			"ImageCore",
 			"LevelSequence",
 			"MovieScene",
 			"MovieSceneTracks",

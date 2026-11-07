@@ -593,4 +593,13 @@ FReply SDTHAnimationWizard::OnBuildScene()
 	return FReply::Handled();
 }
 
+void SDTHAnimationWizard::PreviewScene(int32 Row, USkeletalMesh* Mesh)
+{
+	if (!SceneRows.IsValidIndex(Row)) return;
+	SelectedScene = *SceneRows[Row];
+	for (const FDTHAnimScene::FRole& R : Scenes[SelectedScene].Roles) RoleCharacters.Add(R.Label, Mesh);
+	if (SceneList.IsValid()) SceneList->SetSelection(SceneRows[Row]);
+	MakeRolesPanel();
+}
+
 #undef LOCTEXT_NAMESPACE

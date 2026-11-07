@@ -12,6 +12,10 @@
 #include "Misc/PackageName.h"
 #include "UI/SDTHAnimationWizard.h"
 #include "DTHAnimationWizardModule.h"
+#include "Framework/Application/SlateApplication.h"
+#include "HAL/FileManager.h"
+#include "ImageUtils.h"
+#include "Widgets/Docking/SDockTab.h"
 
 namespace
 {
@@ -90,8 +94,26 @@ bool FDTHAnimP2Wizard::RunTest(const FString&)
 	TestTrue(TEXT("Scenes listed"), SceneLines.Num() > 0 && !SceneLines[0].StartsWith(TEXT("ERROR:")));
 	TestEqual(TEXT("The tab lists what scripting lists (scenes)"), Wizard->NumScenes(), SceneLines.Num());
 	AddInfo(FString::Printf(TEXT("%d scenes listed; first: %s"), SceneLines.Num(), SceneLines.IsEmpty() ? TEXT("") : *SceneLines[0]));
+	// The look: each page as drawn, to Saved/DTHAnimationWizard/phase2.
 	if (TSharedPtr<SDockTab> Tab = FGlobalTabmanager::Get()->FindExistingLiveTab(FDTHAnimationWizardModule::WizardTabName))
 	{
+		for (const TCHAR* Page : {TEXT("Settings"), TEXT("Clips"), TEXT("Scenes")})
+		{
+			Wizard->ShowPage(Page);
+			if (FCString::Stricmp(Page, TEXT("Scenes")) == 0) Wizard->PreviewScene(0, Cast<USkeletalMesh>(GetDefault<UDTHAnimSettings>()->Character.TryLoad()));
+			for (int32 Tick = 0; Tick < 6; ++Tick) FSlateApplication::Get().Tick();
+			TArray<FColor> Pixels;
+			FIntVector Size;
+			if (FSlateApplication::Get().TakeScreenshot(Tab->GetContent(), Pixels, Size) && Size.X > 0)
+			{
+				for (FColor& P : Pixels) P.A = 255;
+				const FString File = UDTHAnimSettings::SavedDir() / TEXT("phase2") / FString::Printf(TEXT("tab_%s.png"), Page);
+				IFileManager::Get().MakeDirectory(*FPaths::GetPath(File), true);
+				FImageUtils::SaveImageByExtension(*File, FImageView(Pixels.GetData(), Size.X, Size.Y));
+				AddInfo(FString::Printf(TEXT("%s page: %s (%dx%d)."), Page, *FPaths::ConvertRelativePathToFull(File), Size.X, Size.Y));
+			}
+			else AddWarning(FString::Printf(TEXT("Could not capture the %s page."), Page));
+		}
 		Tab->RequestCloseTab();
 	}
 	return true;
