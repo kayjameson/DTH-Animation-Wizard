@@ -147,7 +147,9 @@ bool FDTHAnimP1ClipRecreated::RunTest(const FString&)
 	const double Step = 1.0 / C.Clip.Fps;
 
 	TArray<FString> Lines{TEXT("frame\tmax_cm\tcm_bone\tmax_deg\tdeg_bone\tmax_twist_deg\ttwist_bone\thalfway_deg\thalfway_bone")};
-	int32 Failed = 0;
+	int32 Failed = 0, RetargetOnly = 0;
+	double WorstRetargetCm = 0.0;
+	FName WorstRetargetBone;
 	DTHPoseMeasure::FError Worst;
 	int32 WorstFrame = 0;
 	double WorstHalfway = 0.0;
@@ -176,13 +178,36 @@ bool FDTHAnimP1ClipRecreated::RunTest(const FString&)
 		}
 		Lines.Add(FString::Printf(TEXT("%d\t%.4f\t%s\t%.4f\t%s\t%.4f\t%s\t%.4f\t%s"), F, E.MaxCm, *E.CmBone.ToString(), E.MaxDeg,
 			*E.DegBone.ToString(), E.MaxTwistDeg, *E.TwistBone.ToString(), Halfway, *HalfwayBone.ToString()));
-		if (!E.Passes()) ++Failed;
+		if (!E.Passes())
+		{
+			// The same frame played from the solve itself, without the track's trip through DTH's translation retargeting
+			// modes: if it passes, what is left over is a value DTH's retarget mode cannot carry (the pec clavicles' Skeleton
+			// mode keeps the bind translation [imp apply_skeleton_retargeting_modes]), which is DTH's and reported.
+			FDTHBoneReadback Raw;
+			Harness.EvalPose(DTHPoseSolve::Solve(Rig, Ref, Frames[F]), {}, Raw);
+			const DTHPoseMeasure::FError R = DTHPoseMeasure::Compare(Rig, Ref, Raw, Own.Roles[0].Rest, Own.Roles[0].Frames[F]);
+			if (R.Passes())
+			{
+				++RetargetOnly;
+				if (E.MaxCm > WorstRetargetCm) { WorstRetargetCm = E.MaxCm; WorstRetargetBone = E.CmBone; }
+			}
+			else
+			{
+				++Failed;
+				AddWarning(FString::Printf(TEXT("Frame %d: %s; from the solve itself: %s."), F, *E.Describe(), *R.Describe()));
+			}
+		}
 		if (E.MaxCm + E.MaxDeg > Worst.MaxCm + Worst.MaxDeg) { Worst = E; WorstFrame = F; }
 		if (Halfway > WorstHalfway) { WorstHalfway = Halfway; WorstHalfwayBone = HalfwayBone; WorstHalfwayFrame = F; }
 		Previous = MoveTemp(Played);
 	}
-	AddInfo(FString::Printf(TEXT("%d of %d frames within 0.5 cm / 0.5 deg. Worst frame %d: %s."), Frames.Num() - Failed, Frames.Num(),
-		WorstFrame, *Worst.Describe()));
+	AddInfo(FString::Printf(TEXT("%d of %d frames within 0.5 cm / 0.5 deg. Worst frame %d: %s."), Frames.Num() - Failed - RetargetOnly,
+		Frames.Num(), WorstFrame, *Worst.Describe()));
+	if (RetargetOnly > 0)
+	{
+		AddWarning(FString::Printf(TEXT("%d frames pass from the solve itself but not as played: DTH's translation retargeting mode cannot carry the value (worst %.4f cm at %s). DTH's, reported."),
+			RetargetOnly, WorstRetargetCm, *WorstRetargetBone.ToString()));
+	}
 	AddInfo(FString::Printf(TEXT("Between keys: largest departure from the halfway blend %.4f deg (%s, frames %d-%d)."), WorstHalfway,
 		*WorstHalfwayBone.ToString(), WorstHalfwayFrame - 1, WorstHalfwayFrame));
 	AddInfo(TEXT("Report: ") + WriteReport(TEXT("clip_recreated.tsv"), Lines));
@@ -222,24 +247,39 @@ bool FDTHAnimP1Screenshots::RunTest(const FString&)
 		FDTHBoneReadback Played;
 		Harness.EvalSequence(Sequence, F / C.Clip.Fps, Played);
 		Body->UpdateBounds();
-		const FVector Center = Body->Bounds.Origin;
+		// The skinned bounds do not follow the pose here (they read the same on every frame): centre between pelvis and head.
+		const FVector Center = 0.5 * (Body->GetSocketLocation(TEXT("pelvis")) + Body->GetSocketLocation(TEXT("head")));
 		const double Distance = Body->Bounds.SphereRadius * 3.9;
 		// DTH characters face +Y on the UE5 Mannequin skeleton; +X is the character's left.
 		// The face cameras follow the head's facing.
 		const FVector HeadPos = Body->GetSocketLocation(TEXT("head"));
+		// Ahead: from the head joint through the point between the eyes, flattened against the head's up so the camera
+		// looks at the face, not down on it.
+		const FVector EyeMid = 0.5 * (Body->GetSocketLocation(TEXT("eye_l")) + Body->GetSocketLocation(TEXT("eye_r")));
 		const FQuat HeadTurn = Body->GetBoneQuaternion(TEXT("head"), EBoneSpaces::ComponentSpace) * HeadRest.Inverse();
-		const FVector Ahead = Body->GetComponentQuat().RotateVector(HeadTurn.RotateVector(FVector(0.0, 1.0, 0.0)));
+		const FVector HeadUp = Body->GetComponentQuat().RotateVector(HeadTurn.RotateVector(FVector::UpVector));
+		const FVector Ahead = FVector::VectorPlaneProject(EyeMid - HeadPos, HeadUp).GetSafeNormal();
+		const FVector Side = FVector::CrossProduct(HeadUp, Ahead).GetSafeNormal();
 		struct FShot { const TCHAR* Name; FVector Eye, Target; float Fov; };
-		const FVector FaceCenter = HeadPos + FVector(0.0, 0.0, 6.0);
+		const FVector FaceCenter = EyeMid - HeadUp * 3.0;
 		const TArray<FShot> ShotsAt{
 			{TEXT("body_front"), Center + FVector(0.0, Distance, 0.0), Center, 30.f},
 			{TEXT("body_side"), Center + FVector(Distance, 0.0, 0.0), Center, 30.f},
 			{TEXT("body_back"), Center + FVector(0.0, -Distance, 0.0), Center, 30.f},
 			{TEXT("face_front"), FaceCenter + Ahead * 45.0, FaceCenter, 30.f},
-			{TEXT("face_threequarter"), FaceCenter + (Ahead + FVector(0.7, 0.0, 0.0)).GetSafeNormal() * 45.0, FaceCenter, 30.f},
+			{TEXT("face_threequarter"), FaceCenter + (Ahead + Side * 0.7).GetSafeNormal() * 45.0, FaceCenter, 30.f},
+			{TEXT("mouth"), FaceCenter - HeadUp * 4.0 + Ahead * 22.0, FaceCenter - HeadUp * 4.0, 30.f},
 		};
+		AddInfo(FString::Printf(TEXT("Frame %d: component at %s rot %s; head %s, eyes %s, ahead %s, up %s; body bounds %s r %.1f."), F,
+			*Body->GetComponentLocation().ToString(), *Body->GetComponentRotation().ToString(), *HeadPos.ToString(), *EyeMid.ToString(),
+			*Ahead.ToString(), *HeadUp.ToString(), *Center.ToString(), Body->Bounds.SphereRadius));
 		for (const FShot& S : ShotsAt)
 		{
+			// Lit from over the camera's shoulder, so what the camera sees is lit whichever way the clip turns the body.
+			FRotator Light = (S.Target - S.Eye).Rotation();
+			Light.Pitch -= 25.0;
+			Light.Yaw += 20.0;
+			Harness.SetLightDirection(Light);
 			const FString File = Dir / FString::Printf(TEXT("%s_f%03d_%s.png"), *Clip, F, S.Name);
 			if (!Harness.Capture(File, S.Eye, S.Target, S.Fov, 1024, 1024, Error)) { AddError(Error); return false; }
 			++Shots;
