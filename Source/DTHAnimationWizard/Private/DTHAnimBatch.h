@@ -14,6 +14,14 @@ struct FDTHAnimIndexEntry
 	/** Morphs the clip moves off their rest value: v1 does not recreate them. */
 	int32 KeyedMorphs = 0;
 	double RestoreDriftCm = 0.0;
+	/** For a Genesis 8 clip carried onto Genesis 9 in Daz: the G8 figure it played on (e.g. "Genesis8Female"). Empty for G9 clips. */
+	FString Source;
+	/** For a Genesis 8 clip: the largest angle between a G9 bone and its G8 bone over the clip, and how many G9 channels went past G9's joint limits to follow G8. */
+	double SourceGapDeg = 0.0;
+	int32 BeyondG9Limits = 0;
+
+	/** "Genesis 8 Female" for Source "Genesis8Female". */
+	FString SourceName() const;
 
 	/** The clip's pack folder below People/<figure>/Animations, e.g. "AdultDazAnimation". */
 	FString Pack() const;

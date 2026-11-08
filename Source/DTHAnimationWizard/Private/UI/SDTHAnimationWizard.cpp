@@ -298,7 +298,8 @@ TSharedRef<ITableRow> SDTHAnimationWizard::MakeClipRow(TSharedPtr<FRow> Row, con
 	const FDTHAnimIndexEntry& C = *Row->Clip;
 	const FString Details = C.Samples.IsEmpty() ? FString::Printf(TEXT("not sampled: %s"), *C.Skipped)
 		: FString::Printf(TEXT("%s  |  %d frames at %g fps%s"), *C.Pack(), C.Frames, C.Fps,
-			C.KeyedMorphs > 0 ? *FString::Printf(TEXT("  |  %d keyed morphs (not written)"), C.KeyedMorphs) : TEXT(""));
+			C.KeyedMorphs > 0 ? *FString::Printf(TEXT("  |  %d keyed morphs (not written)"), C.KeyedMorphs) : TEXT(""))
+			+ (C.Source.IsEmpty() ? FString() : FString::Printf(TEXT("  |  from %s, carried onto Genesis 9"), *C.SourceName()));
 	return SNew(STableRow<TSharedPtr<FRow>>, Owner)
 		.Padding(FMargin(4.f, 2.f))
 		[

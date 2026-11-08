@@ -17,7 +17,7 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "DTH Animation Wizard")
 	static FString OpenWizard(const FString& Page);
 
-	/** The sampled clips whose label or pack contains Filter (all for ""): "label | pack | frames | fps | keyed morphs | key". */
+	/** The sampled clips whose label or pack contains Filter (all for ""): "label | pack | frames | fps | keyed morphs | key | source" (source: "Genesis 9", or "from Genesis 8 Female" for a G8 clip carried onto G9). */
 	UFUNCTION(BlueprintCallable, Category = "DTH Animation Wizard")
 	static TArray<FString> ListClips(const FString& Filter);
 

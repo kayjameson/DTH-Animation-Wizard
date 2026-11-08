@@ -10,6 +10,10 @@
 // every frame from 0 to its last key is sampled; then its keys are taken off and the figure is set back, so the next
 // clip starts from the same rest.
 //
+// Genesis 8 clips (under People/Genesis 8*) play on a base Genesis 8 figure beside the Genesis 9 and are carried onto G9
+// frame by frame (see "Genesis 8 clips" below). Their samples are G9 samples like any other, plus a "source" block that
+// says how closely G9 followed G8.
+//
 // Each role holds "rest" (UnrealPose, DTH ROM frame 1: the rest the solve measures from, as in the Pose Wizard),
 // "zero" (the figure as loaded) and "frames". Positions are Daz world space (cm, Y up), rotations Daz world-space
 // quaternions [x, y, z, w], in the format of the
@@ -17,7 +21,7 @@
 //
 // Arguments (a global `args`, or the script's first argument):
 //   args.files    clip files (absolute, or relative to a content directory). Default: every clip in a folder named
-//                 "Animations" under People/Genesis 9* in every content directory.
+//                 "Animations" under People/Genesis 9* or People/Genesis 8* in every content directory.
 //   args.out      output folder (default: Documents/DTH Animation Wizard)
 //   args.last     last frame to sample, for quick checks (default: the clip's last key)
 //   args.figure   load this figure or scene file instead of base Genesis 9
@@ -157,12 +161,19 @@
 		return true;
 	}
 
-	// Every clip under People/Genesis 9*/.../Animations in every content directory.
+	// A clip from a People/Genesis 8* folder plays on its own G8 figure and is carried onto G9.
+	function clipEntry(pack, file) {
+		var e = {pack: pack, file: file};
+		if (/People\/Genesis 8/.test(pack)) e.source = g8Kind(file);
+		return e;
+	}
+
+	// Every clip under People/Genesis 9*/.../Animations and People/Genesis 8*/.../Animations in every content directory.
 	function findClips() {
 		var out = [], seen = {}, mgr = App.getContentMgr();
 		function walk(dir, rel) {
 			var d = new DzDir(dir), files = d.entryList(["*.duf"], DzDir.Files, DzDir.Name);
-			for (var i = 0; i < files.length; i++) if (!seen[rel + "/" + files[i]]) { seen[rel + "/" + files[i]] = true; out.push({pack: rel, file: dir + "/" + files[i]}); }
+			for (var i = 0; i < files.length; i++) if (!seen[rel + "/" + files[i]]) { seen[rel + "/" + files[i]] = true; out.push(clipEntry(rel, dir + "/" + files[i])); }
 			var dirs = d.entryList(DzDir.Dirs | DzDir.NoDotAndDotDot, DzDir.Name);
 			for (var j = 0; j < dirs.length; j++) walk(dir + "/" + dirs[j], rel + "/" + dirs[j]);
 		}
@@ -171,10 +182,176 @@
 			if (!exists(people)) continue;
 			var figs = new DzDir(people).entryList(DzDir.Dirs | DzDir.NoDotAndDotDot, DzDir.Name);
 			for (var f = 0; f < figs.length; f++)
-				if (figs[f].indexOf("Genesis 9") == 0 && exists(people + "/" + figs[f] + "/Animations"))
+				if ((figs[f].indexOf("Genesis 9") == 0 || figs[f].indexOf("Genesis 8") == 0) && exists(people + "/" + figs[f] + "/Animations"))
 					walk(people + "/" + figs[f] + "/Animations", "People/" + figs[f] + "/Animations");
 		}
 		return out;
+	}
+
+	// ---- Genesis 8 clips, carried onto Genesis 9 ----
+	// A Genesis 8 clip is applied to a base Genesis 8 figure loaded beside the Genesis 9 (same origin). On each frame every G9
+	// body bone is turned to G8's matching bone in world space, so it points where G8's points (its bend axes onto G8's), and
+	// the hip moves by G8's hip travel scaled by the two hip heights. Then G9 is sampled as for its own clips, so the result
+	// is the same samples format. G9's joint limits are off while a G8 clip plays: G8 clips go past them (clip 001 bends
+	// G8's knee 28 deg sideways, G9 allows 5), and following G8's movement is the point. How far past is reported per clip.
+	var G8 = {Genesis8Female: "People/Genesis 8 Female/Genesis 8 Basic Female.duf", Genesis8Male: "People/Genesis 8 Male/Genesis 8 Basic Male.duf"};
+	// G9 bone <- [G8 bone, and for bones with a segment: G8 segment start, G8 segment end, G9 segment end].
+	var G8MAP = (function() {
+		var m = {hip: ["hip"], pelvis: ["pelvis"], spine1: ["abdomenLower", "abdomenLower", "abdomenUpper", "spine2"],
+			spine2: ["abdomenUpper", "abdomenUpper", "chestLower", "spine3"], spine3: ["chestLower", "chestLower", "chestUpper", "spine4"],
+			spine4: ["chestUpper", "chestUpper", "neckLower", "neck1"], neck1: ["neckLower", "neckLower", "neckUpper", "neck2"],
+			neck2: ["neckUpper", "neckUpper", "head", "head"], head: ["head"], lowerjaw: ["lowerJaw"]};
+		var sides = ["l", "r"], toes = ["index", "mid", "ring", "pinky"], f8 = ["Thumb", "Index", "Mid", "Ring", "Pinky"], f9 = ["thumb", "index", "mid", "ring", "pinky"];
+		for (var s = 0; s < 2; s++) {
+			var a = sides[s], b = a + "_";
+			m[b + "eye"] = [a + "Eye"]; m[b + "pectoral"] = [a + "Pectoral"];
+			m[b + "shoulder"] = [a + "Collar", a + "Collar", a + "ShldrBend", b + "upperarm"];
+			// G8's bend/twist pairs: G9's bone takes the twist bone's world rotation (bend and twist together).
+			m[b + "upperarm"] = [a + "ShldrTwist", a + "ShldrBend", a + "ForearmBend", b + "forearm"];
+			m[b + "forearm"] = [a + "ForearmTwist", a + "ForearmBend", a + "Hand", b + "hand"];
+			m[b + "hand"] = [a + "Hand", a + "Hand", a + "Mid1", b + "mid1"];
+			m[b + "thigh"] = [a + "ThighTwist", a + "ThighBend", a + "Shin", b + "shin"];
+			m[b + "shin"] = [a + "Shin", a + "Shin", a + "Foot", b + "foot"];
+			m[b + "foot"] = [a + "Foot", a + "Foot", a + "Toe", b + "toes"];
+			m[b + "metatarsal"] = [a + "Metatarsals"];
+			m[b + "toes"] = [a + "Toe"];
+			m[b + "bigtoe1"] = [a + "BigToe", a + "BigToe", a + "BigToe_2", b + "bigtoe2"]; m[b + "bigtoe2"] = [a + "BigToe_2"];
+			for (var t = 0; t < 4; t++) {
+				m[b + toes[t] + "toe1"] = [a + "SmallToe" + (t + 1), a + "SmallToe" + (t + 1), a + "SmallToe" + (t + 1) + "_2", b + toes[t] + "toe2"];
+				m[b + toes[t] + "toe2"] = [a + "SmallToe" + (t + 1) + "_2"];
+			}
+			for (var f = 0; f < 5; f++) {
+				m[b + f9[f] + "1"] = [a + f8[f] + "1", a + f8[f] + "1", a + f8[f] + "2", b + f9[f] + "2"];
+				m[b + f9[f] + "2"] = [a + f8[f] + "2", a + f8[f] + "2", a + f8[f] + "3", b + f9[f] + "3"];
+				m[b + f9[f] + "3"] = [a + f8[f] + "3"];
+				if (f > 0) m[b + f9[f] + "metacarpal"] = [a + "Carpal" + f, a + "Carpal" + f, a + f8[f] + "1", b + f9[f] + "1"];
+			}
+		}
+		return m;
+	})();
+	// Quaternions as [x, y, z, w]. A Daz quaternion value turns vectors as its conjugate (measured: a child's offset from its
+	// parent follows conj(getWSRot)), so the physical rotations below are conjugated going in and out of Daz.
+	function qv(d) { return [d.x, d.y, d.z, d.w]; }
+	function dzq(a) { var r = new DzQuat(); r.x = a[0]; r.y = a[1]; r.z = a[2]; r.w = a[3]; return r; }
+	function qmul(a, b) { return [a[3]*b[0]+a[0]*b[3]+a[1]*b[2]-a[2]*b[1], a[3]*b[1]-a[0]*b[2]+a[1]*b[3]+a[2]*b[0], a[3]*b[2]+a[0]*b[1]-a[1]*b[0]+a[2]*b[3], a[3]*b[3]-a[0]*b[0]-a[1]*b[1]-a[2]*b[2]]; }
+	function qinv(a) { return [-a[0], -a[1], -a[2], a[3]]; }
+	function qnorm(a) { var n = Math.sqrt(a[0]*a[0]+a[1]*a[1]+a[2]*a[2]+a[3]*a[3]); return [a[0]/n, a[1]/n, a[2]/n, a[3]/n]; }
+	function qangle(a, b) { var d = Math.abs(a[0]*b[0]+a[1]*b[1]+a[2]*b[2]+a[3]*b[3]); return 2 * Math.acos(Math.min(1, d)) * 180 / Math.PI; }
+	function vsub(a, b) { return [a.x - b.x, a.y - b.y, a.z - b.z]; }
+	function vunit(v) { var n = Math.sqrt(v[0]*v[0]+v[1]*v[1]+v[2]*v[2]); return [v[0]/n, v[1]/n, v[2]/n]; }
+	function vangle(u, v) { u = vunit(u); v = vunit(v); return Math.acos(Math.max(-1, Math.min(1, u[0]*v[0]+u[1]*v[1]+u[2]*v[2]))) * 180 / Math.PI; }
+	function between(u, v) {
+		u = vunit(u); v = vunit(v);
+		return qnorm([u[1]*v[2]-u[2]*v[1], u[2]*v[0]-u[0]*v[2], u[0]*v[1]-u[1]*v[0], 1 + u[0]*v[0]+u[1]*v[1]+u[2]*v[2]]);
+	}
+	function figureNamed(name) { for (var i = 0; i < Scene.getNumSkeletons(); i++) if (Scene.getSkeleton(i).getName() == name) return Scene.getSkeleton(i); return null; }
+	function g8Kind(path) {
+		// The clip's own figure: the pack keeps G8 Female and Male clips in one folder, so the file name decides.
+		var name = new DzFileInfo(path).completeBaseName();
+		if (/Female/i.test(name)) return "Genesis8Female";
+		if (/Male/i.test(name)) return "Genesis8Male";
+		return /Genesis 8 Male/i.test(path) ? "Genesis8Male" : "Genesis8Female";
+	}
+	// Loads a base G8 figure beside G9 and measures, at rest, how each G9 bone lines up with its G8 bone.
+	var RETARGET = {};
+	var KEEP_REST = {hip: 1, pelvis: 1, head: 1, lowerjaw: 1, l_eye: 1, r_eye: 1, l_pectoral: 1, r_pectoral: 1};
+	function loadSource(kind) {
+		var file = contentPath(G8[kind]);
+		if (!file) { result.errors.push(kind + " is not installed (" + G8[kind] + "): its clips are skipped."); return null; }
+		Scene.selectAllNodes(false);
+		App.getContentMgr().openFile(file, true);
+		var g8 = figureNamed(kind), g9 = mainFigure();
+		if (!g8) { result.errors.push("Loading " + G8[kind] + " did not give a " + kind + " figure: its clips are skipped."); return null; }
+		// The carry is measured between base Genesis 8 and base Genesis 9, so its result is a Genesis 9 clip like any other,
+		// the same on every character. Sampled on a character (args.figure), a base Genesis 9 is loaded beside it to measure
+		// on, then taken out again.
+		var nodes = Scene.getNumNodes(), ref = g9;
+		if (A.figure) {
+			var base = contentPath("People/Genesis 9/Genesis 9.duf");
+			if (!base) { result.errors.push("Base Genesis 9 is not installed: the Genesis 8 clips are skipped."); return null; }
+			Scene.selectAllNodes(false);
+			App.getContentMgr().openFile(base, true);
+			for (var sk = 0; sk < Scene.getNumSkeletons(); sk++)
+				if (Scene.getSkeleton(sk).getName() == "Genesis9" && Scene.getSkeleton(sk) != g9) ref = Scene.getSkeleton(sk);
+			if (ref == g9) { result.errors.push("Loading base Genesis 9 did not give a second Genesis9 figure: the Genesis 8 clips are skipped."); return null; }
+		}
+		var aligned = {}, plan = [], bones9 = g9.getAllBones(), hip8 = g8.findBone("hip"), hip9 = g9.findBone("hip");
+		for (var i = 0; i < bones9.length; i++) {
+			var m = G8MAP[bones9[i].getName()], src = m ? g8.findBone(m[0]) : null;
+			if (!src) continue;
+			// Rest world rotations are identity on both figures, so the alignment works on world directions and orientations.
+			// A bone with a segment is turned to point along G8's (the swing), then about that line by the part of the
+			// orientation difference that is a twist about it, so its bend axes come closest to G8's. End bones without a segment
+			// (finger and toe tips, toes, metatarsals) take their parent's alignment, so their local rotation is G8's and G9's
+			// locked channels aren't asked to move. The hip, pelvis, head, jaw, eyes and pectorals keep G9's own rest, so they
+			// face where G8's do.
+			var parent = bones9[i].getNodeParent(), align = [0, 0, 0, 1], at = ref.findBone(bones9[i].getName());
+			if (m.length < 4 && !KEEP_REST[bones9[i].getName()] && parent && aligned[parent.getName()]) align = aligned[parent.getName()];
+			if (m.length == 4) {
+				var u9 = vsub(ref.findBone(m[3]).getWSPos(), at.getWSPos()), u8 = vsub(g8.findBone(m[2]).getWSPos(), g8.findBone(m[1]).getWSPos());
+				var orient = qmul(qinv(qv(src.getOrientation())), qv(at.getOrientation()));
+				var swing = between(u9, u8), r = qmul(orient, qinv(swing)), n = vunit(u8), d = r[0]*n[0] + r[1]*n[1] + r[2]*n[2];
+				align = qmul(qnorm([d*n[0], d*n[1], d*n[2], r[3]]), swing);
+			}
+			aligned[bones9[i].getName()] = align;
+			plan.push({dst: bones9[i], name: bones9[i].getName(), src: src, align: align, inv: qinv(align),
+				rest9: qv(bones9[i].getWSRot()), rest8inv: qinv(qv(src.getWSRot())),
+				seg: m.length == 4 ? [g8.findBone(m[1]), g8.findBone(m[2]), g9.findBone(m[3])] : null,
+				controls: [bones9[i].getXRotControl(), bones9[i].getYRotControl(), bones9[i].getZRotControl()]});
+		}
+		var h8 = hip8.getWSPos(), scale = ref.findBone("hip").getWSPos().y / h8.y;
+		for (var n = Scene.getNumNodes() - 1; n >= nodes; n--) Scene.removeNode(Scene.getNode(n));
+		function foot(b9, b8) { return {g9: b9, g8: b8, rest9: b9.getWSPos().y, rest8: b8.getWSPos().y}; }
+		// The hip travels by G8's, scaled by base G9's hip height over G8's, set on its translation channels as a G9 clip's keys
+		// would be (so a character's figure scale applies as it does to G9 clips).
+		RETARGET[kind] = {figure: g8, file: G8[kind], plan: plan, hip8: hip8, hip9: hip9, rest8: h8, scale: scale,
+			hipChannels: [hip9.getXPosControl(), hip9.getYPosControl(), hip9.getZPosControl()],
+			// Floor contact: each ankle's height change since rest, G9 against G8's scaled by the hip heights.
+			feet: [foot(g9.findBone("l_foot"), g8.findBone("lFoot")), foot(g9.findBone("r_foot"), g8.findBone("rFoot"))]};
+		return RETARGET[kind];
+	}
+	// Turns G9 to G8 at the current time, top down (getAllBones lists parents first). Returns the worst gaps this frame.
+	function retargetFrame(rt, worst) {
+		var AXES = ["X", "Y", "Z"];
+		for (var k = 0; k < rt.plan.length; k++) {
+			var p = rt.plan[k];
+			// Physically R9 = (R8 R8rest^-1) A R9rest; in Daz's values that is rest9 A^-1 rest8^-1 w8.
+			p.dst.setWSRot(dzq(qmul(qmul(p.rest9, p.inv), qmul(p.rest8inv, qv(p.src.getWSRot())))));
+			if (p.dst == rt.hip9) {
+				var h = rt.hip8.getWSPos();
+				rt.hipChannels[0].setValue((h.x - rt.rest8.x) * rt.scale);
+				rt.hipChannels[1].setValue((h.y - rt.rest8.y) * rt.scale);
+				rt.hipChannels[2].setValue((h.z - rt.rest8.z) * rt.scale);
+			}
+		}
+		for (var ft = 0; ft < rt.feet.length; ft++) {
+			var fo = rt.feet[ft], fg = Math.abs((fo.g9.getWSPos().y - fo.rest9) - (fo.g8.getWSPos().y - fo.rest8) * rt.scale);
+			if (fg > worst.footCm) worst.footCm = round(fg, 4);
+		}
+		for (var j = 0; j < rt.plan.length; j++) {
+			var b = rt.plan[j];
+			// How well G9 follows: its world rotation against the target (locked channels can't follow) and, for bones with a
+			// segment, the angle between its segment and G8's.
+			var gap = qangle(qv(b.dst.getWSRot()), qmul(qmul(b.rest9, b.inv), qmul(b.rest8inv, qv(b.src.getWSRot()))));
+			if (gap > worst.rotDeg) { worst.rotDeg = round(gap, 4); worst.rotBone = b.name; }
+			if (b.seg) {
+				var seg = vangle(vsub(b.seg[2].getWSPos(), b.dst.getWSPos()), vsub(b.seg[1].getWSPos(), b.seg[0].getWSPos()));
+				if (seg > worst.segDeg) { worst.segDeg = round(seg, 4); worst.segBone = b.name; }
+			}
+			for (var c = 0; c < 3; c++) {
+				var ctl = b.controls[c], v = ctl.getValue(), over = Math.max(v - ctl.getMax(), ctl.getMin() - v, 0);
+				if (over > 1e-3 && b.clamped[c]) {
+					worst.beyond[b.name + " " + AXES[c]] = Math.max(worst.beyond[b.name + " " + AXES[c]] || 0, round(over, 2));
+				}
+			}
+		}
+	}
+	function unclamp(rt, on) {
+		for (var k = 0; k < rt.plan.length; k++) {
+			var p = rt.plan[k];
+			if (!p.clamped) p.clamped = [p.controls[0].isClamped(), p.controls[1].isClamped(), p.controls[2].isClamped()];
+			for (var c = 0; c < 3; c++) p.controls[c].setIsClamped(on ? false : p.clamped[c]);
+		}
 	}
 
 	function safeName(s) { return s.replace(/[^A-Za-z0-9_\-]+/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, ""); }
@@ -187,7 +364,9 @@
 			var kept = readJson(summaryFile);
 			if (kept) { kept.resumed = true; result.clips.push(kept); return; }
 		}
-		var main = mainFigure(), nodes = Scene.getNumNodes(), step = ticks(Scene.getTimeStep());
+		var rt = clip.source ? RETARGET[clip.source] : null;
+		if (clip.source && !rt) { result.errors.push(clip.file + ": " + clip.source + " is not loaded, so this Genesis 8 clip is skipped."); return; }
+		var main = rt ? rt.figure : mainFigure(), nodes = Scene.getNumNodes(), step = ticks(Scene.getTimeStep());
 		Scene.setTime(0);
 		Scene.selectAllNodes(false); main.select(true); Scene.setPrimarySelection(main);
 		var started = new Date().getTime();
@@ -201,14 +380,32 @@
 		if (!ok) { restore(snap); result.errors.push(clip.file + ": Daz could not load it."); return; }
 		var keys = keyInfo(snap, step);
 		var last = typeof A.last == "number" ? Math.min(A.last, keys.last) : keys.last;
-		var loaded = new Date().getTime(), frames = [];
+		var loaded = new Date().getTime(), frames = [], worst = {rotDeg: 0, rotBone: "", segDeg: 0, segBone: "", beyond: {}, footCm: 0};
+		if (rt) unclamp(rt, true);
 		for (var fr = 0; fr <= last; fr++) {
 			Scene.setTime(fr * Scene.getTimeStep());
+			if (rt) retargetFrame(rt, worst);
 			frames.push(sample());
 		}
 		var sampled = new Date().getTime();
 		Scene.setTime(0);
 		restore(snap);
+		if (rt) unclamp(rt, false);
+		var source = null;
+		if (rt) {
+			var beyond = [];
+			for (var bk in worst.beyond) beyond.push([bk, worst.beyond[bk]]);
+			beyond.sort(function(x, y) { return y[1] - x[1]; });
+			source = {figure: clip.source, file: rt.file, hipScale: round(rt.scale, 6),
+				// G9's world rotation against G8's (after the rest alignment): only locked G9 channels leave a gap.
+				maxRotationGapDeg: worst.rotDeg, maxRotationGapBone: worst.rotBone,
+				// The angle between each G9 bone with a segment and G8's: what the eye sees.
+				maxSegmentGapDeg: worst.segDeg, maxSegmentGapBone: worst.segBone,
+				// Floor contact: the ankles' height change since rest against G8's, scaled by the hip heights.
+				maxFootHeightGapCm: worst.footCm,
+				// G9 channels past G9's joint limits, worst first: [bone axis, degrees past].
+				beyondG9Limits: beyond};
+		}
 		var back = sample(), drift = 0;
 		for (var b in zero.bones) {
 			var p = zero.bones[b].pos, q = back.bones[b] ? back.bones[b].pos : p;
@@ -218,7 +415,7 @@
 			units: "cm, Y up, Daz world space", figure: FIGURE_FILE,
 			clip: {label: label, pack: clip.pack, file: clip.file},
 			fps: TICKS_PER_SECOND / step, firstFrame: 0, lastFrame: last, lastKey: keys.last,
-			keyedChannels: keys.keyedChannels, keyedMorphs: keys.keyedMorphs,
+			keyedChannels: keys.keyedChannels, keyedMorphs: keys.keyedMorphs, source: source,
 			timing: {loadMs: loaded - started, sampleMs: sampled - loaded},
 			restoreDriftCm: round(drift, 6),
 			roles: [{label: "", figure: "Genesis9", rest: rest, zero: zero, frames: frames}]};
@@ -226,6 +423,7 @@
 		if (!writeText(outFile, JSON.stringify(doc))) { result.errors.push(clip.file + ": could not write " + outFile); return; }
 		var summary = {label: label, file: clip.file, samples: outFile, frames: last + 1, fps: doc.fps,
 			sampleMs: sampled - loaded, keyedMorphs: keys.keyedMorphs.length, restoreDriftCm: doc.restoreDriftCm};
+		if (source) { summary.source = source.figure; summary.maxSegmentGapDeg = source.maxSegmentGapDeg; summary.maxRotationGapDeg = source.maxRotationGapDeg; summary.beyondG9Limits = source.beyondG9Limits.length; }
 		writeText(summaryFile, JSON.stringify(summary));
 		result.clips.push(summary);
 		note(label + ": " + (last + 1) + " frames in " + (sampled - loaded) + " ms.");
@@ -250,7 +448,7 @@
 	if (A.files) {
 		for (var f = 0; f < A.files.length; f++) {
 			var path = contentPath(A.files[f]);
-			if (path) clips.push({pack: new DzFileInfo(path).path().replace(/^.*\/People\//, "People/"), file: path});
+			if (path) clips.push(clipEntry(new DzFileInfo(path).path().replace(/^.*\/People\//, "People/"), path));
 			else result.errors.push(A.files[f] + ": not found in any content directory.");
 		}
 	}
@@ -266,6 +464,10 @@
 		zeroDrift = Math.max(zeroDrift, Math.abs(zp[0] - fp[0]), Math.abs(zp[1] - fp[1]), Math.abs(zp[2] - fp[2]));
 	}
 	if (zeroDrift > 1e-4) note("The reloaded figure differs from the first by " + zeroDrift + " cm.");
+	// The Genesis 8 figures the clips need, beside G9, before the snapshot (so restoring covers them too).
+	var kinds = {};
+	for (var ck = 0; ck < clips.length; ck++) if (clips[ck].source) kinds[clips[ck].source] = true;
+	for (var kind in kinds) if (loadSource(kind)) note(kind + " loaded for its clips (hip scale " + round(RETARGET[kind].scale, 4) + ").");
 	var snap = snapshot();
 	for (var c = 0; c < clips.length; c++) sampleClip(clips[c], rest, zero, snap);
 	var index = {format: "DTH Animation Samples Index", version: 1, sampledAt: new Date().toISOString(), clips: result.clips, errors: result.errors};

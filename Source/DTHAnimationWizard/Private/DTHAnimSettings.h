@@ -32,6 +32,14 @@ public:
 	UPROPERTY(config, EditAnywhere, Category = "Testing", meta = (DisplayName = "Character Clip Samples File", FilePathFilter = "json"))
 	FFilePath CharacterClipSamplesFile;
 
+	/** Testing only: a Genesis 8 clip carried onto base Genesis 9 by the sampler (DTH.Anim.G8.*). */
+	UPROPERTY(config, EditAnywhere, Category = "Testing", meta = (DisplayName = "G8 Clip Samples File", FilePathFilter = "json"))
+	FFilePath G8ClipSamplesFile;
+
+	/** Testing only: the same Genesis 8 clip carried onto the character itself in Daz (the sampler's "figure" argument). */
+	UPROPERTY(config, EditAnywhere, Category = "Testing", meta = (DisplayName = "G8 Character Clip Samples File", FilePathFilter = "json"))
+	FFilePath G8CharacterClipSamplesFile;
+
 	/** Testing only: a multi-actor scene's clips sampled on the character, one file per role (DTH.Anim.P3.*). */
 	UPROPERTY(config, EditAnywhere, Category = "Testing", meta = (DisplayName = "Character Scene Samples Files", FilePathFilter = "json"))
 	TArray<FFilePath> CharacterSceneSamples;

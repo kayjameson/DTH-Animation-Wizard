@@ -25,7 +25,8 @@ TArray<FString> UDTHAnimScripting::ListClips(const FString& Filter)
 	TArray<FString> Out;
 	for (const FDTHAnimIndexEntry* C : Index.Find(Filter))
 	{
-		Out.Add(FString::Printf(TEXT("%s | %s | %d | %g | %d | %s"), *C->Label, *C->Pack(), C->Frames, C->Fps, C->KeyedMorphs, *C->Key()));
+		Out.Add(FString::Printf(TEXT("%s | %s | %d | %g | %d | %s | %s"), *C->Label, *C->Pack(), C->Frames, C->Fps, C->KeyedMorphs, *C->Key(),
+			C->Source.IsEmpty() ? TEXT("Genesis 9") : *FString::Printf(TEXT("from %s"), *C->SourceName())));
 	}
 	return Out;
 }

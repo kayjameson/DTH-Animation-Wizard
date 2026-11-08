@@ -22,6 +22,19 @@ FString FDTHAnimIndexEntry::Pack() const
 	return At == INDEX_NONE ? FPaths::GetCleanFilename(Path) : Path.Mid(At + 12);
 }
 
+FString FDTHAnimIndexEntry::SourceName() const
+{
+	// "Genesis8Female" -> "Genesis 8 Female".
+	FString Out;
+	for (int32 I = 0; I < Source.Len(); ++I)
+	{
+		const TCHAR Ch = Source[I];
+		if (I > 0 && ((FChar::IsUpper(Ch) && !FChar::IsDigit(Source[I - 1])) || (FChar::IsDigit(Ch) && !FChar::IsDigit(Source[I - 1])) || (FChar::IsUpper(Ch) && FChar::IsDigit(Source[I - 1])))) Out += TEXT(" ");
+		Out.AppendChar(Ch);
+	}
+	return Out;
+}
+
 bool FDTHAnimIndex::Load(const FString& InFile, FString& OutError)
 {
 	*this = FDTHAnimIndex();
@@ -56,6 +69,9 @@ bool FDTHAnimIndex::Load(const FString& InFile, FString& OutError)
 			C->TryGetNumberField(TEXT("fps"), E.Fps);
 			C->TryGetNumberField(TEXT("keyedMorphs"), E.KeyedMorphs);
 			C->TryGetNumberField(TEXT("restoreDriftCm"), E.RestoreDriftCm);
+			C->TryGetStringField(TEXT("source"), E.Source);
+			C->TryGetNumberField(TEXT("maxSegmentGapDeg"), E.SourceGapDeg);
+			C->TryGetNumberField(TEXT("beyondG9Limits"), E.BeyondG9Limits);
 		}
 	}
 	if (Root->TryGetArrayField(TEXT("errors"), Array))
@@ -179,6 +195,10 @@ namespace DTHAnimBatch
 			Frames += Clip.Roles[0].Frames.Num();
 			OutReport.Add(FDTHAnimMessage::Info(FString::Printf(TEXT("%s: %d frames at %s, %.2f s, written to %s."), *Entry->Label,
 				Clip.Roles[0].Frames.Num(), *Clip.FrameRate().ToPrettyText().ToString(), Sequence->GetPlayLength(), *Sequence->GetPathName())));
+			if (!Clip.Source.Figure.IsEmpty())
+			{
+				OutReport.Add(FDTHAnimMessage::Info(FString::Printf(TEXT("%s: %s"), *Entry->Label, *Clip.Source.Describe())));
+			}
 			if (!Clip.KeyedMorphs.IsEmpty())
 			{
 				++WithMorphs;

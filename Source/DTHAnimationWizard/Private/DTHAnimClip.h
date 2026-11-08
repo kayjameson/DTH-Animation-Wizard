@@ -27,6 +27,25 @@ struct FDTHAnimClip
 	int32 LastKey = 0;
 	/** Morphs the clip keys: v1 writes bone tracks only and reports these (plan, open question 7). */
 	TArray<FString> KeyedMorphs;
+	/** A Genesis 8 clip carried onto Genesis 9 in Daz (the sampler's "source" block); Figure is empty for a G9 clip. */
+	struct FSource
+	{
+		FString Figure;
+		double HipScale = 1.0;
+		/** G9's world rotations against G8's after the rest alignment (only locked G9 channels leave a gap). */
+		double RotationGapDeg = 0.0;
+		FString RotationGapBone;
+		/** The angle between each G9 bone segment and G8's. */
+		double SegmentGapDeg = 0.0;
+		FString SegmentGapBone;
+		/** Ankle height change against G8's, scaled by the hip heights (the two figures' leg proportions differ). */
+		double FootHeightGapCm = 0.0;
+		/** G9 channels past G9's joint limits to follow G8, worst first: "bone axis" and degrees past. */
+		TArray<TPair<FString, double>> BeyondG9Limits;
+
+		/** One line for reports. */
+		FString Describe() const;
+	} Source;
 	TArray<FRole> Roles;
 
 	bool Load(const FString& InFile, FString& OutError);

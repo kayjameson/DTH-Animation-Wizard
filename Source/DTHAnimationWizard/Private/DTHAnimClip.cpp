@@ -39,6 +39,27 @@ bool FDTHAnimClip::Load(const FString& InFile, FString& OutError)
 	{
 		for (const TSharedPtr<FJsonValue>& M : *Morphs) KeyedMorphs.Add(M->AsString());
 	}
+	const TSharedPtr<FJsonObject>* SourceInfo = nullptr;
+	if (Root->TryGetObjectField(TEXT("source"), SourceInfo) && SourceInfo->IsValid())
+	{
+		const FJsonObject& S = **SourceInfo;
+		Source.Figure = S.GetStringField(TEXT("figure"));
+		S.TryGetNumberField(TEXT("hipScale"), Source.HipScale);
+		S.TryGetNumberField(TEXT("maxRotationGapDeg"), Source.RotationGapDeg);
+		S.TryGetStringField(TEXT("maxRotationGapBone"), Source.RotationGapBone);
+		S.TryGetNumberField(TEXT("maxSegmentGapDeg"), Source.SegmentGapDeg);
+		S.TryGetStringField(TEXT("maxSegmentGapBone"), Source.SegmentGapBone);
+		S.TryGetNumberField(TEXT("maxFootHeightGapCm"), Source.FootHeightGapCm);
+		const TArray<TSharedPtr<FJsonValue>>* Beyond = nullptr;
+		if (S.TryGetArrayField(TEXT("beyondG9Limits"), Beyond))
+		{
+			for (const TSharedPtr<FJsonValue>& V : *Beyond)
+			{
+				const TArray<TSharedPtr<FJsonValue>>& Pair = V->AsArray();
+				if (Pair.Num() == 2) Source.BeyondG9Limits.Add({Pair[0]->AsString(), Pair[1]->AsNumber()});
+			}
+		}
+	}
 	const TArray<TSharedPtr<FJsonValue>>* RoleArray = nullptr;
 	if (!Root->TryGetArrayField(TEXT("roles"), RoleArray) || RoleArray->IsEmpty())
 	{
@@ -93,4 +114,17 @@ namespace DTHAnimBuild
 		const FDTHAnimClip::FRole& R = Clip.Roles[Role];
 		return DTHPoseCharacter::Write(Mesh, R.Rest, R.Frames, Folder, Name, OutError, Clip.FrameRate());
 	}
+}
+
+FString FDTHAnimClip::FSource::Describe() const
+{
+	if (Figure.IsEmpty()) return FString();
+	FString Line = FString::Printf(TEXT("carried onto Genesis 9 from %s in Daz: bones within %.2f deg of G8's (worst %s), bone directions within %.2f deg (%s), ankle heights within %.2f cm"),
+		*Figure, RotationGapDeg, *RotationGapBone, SegmentGapDeg, *SegmentGapBone, FootHeightGapCm);
+	if (!BeyondG9Limits.IsEmpty())
+	{
+		Line += FString::Printf(TEXT("; %d G9 channels go past G9's joint limits to follow G8 (worst %s by %.1f deg)"), BeyondG9Limits.Num(),
+			*BeyondG9Limits[0].Key, BeyondG9Limits[0].Value);
+	}
+	return Line + TEXT(".");
 }
