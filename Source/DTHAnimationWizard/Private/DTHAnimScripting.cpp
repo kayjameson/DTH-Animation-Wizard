@@ -31,7 +31,7 @@ TArray<FString> UDTHAnimScripting::ListClips(const FString& Filter)
 	return Out;
 }
 
-TArray<FString> UDTHAnimScripting::WriteClips(const FString& MeshPath, const TArray<FString>& Labels, bool bReplace, const FString& Folder)
+TArray<FString> UDTHAnimScripting::WriteClips(const FString& MeshPath, const TArray<FString>& Labels, bool bReplace, const FString& Folder, float Speed)
 {
 	USkeletalMesh* Mesh = LoadObject<USkeletalMesh>(nullptr, *MeshPath);
 	if (!Mesh) return {FString::Printf(TEXT("ERROR: %s is not a skeletal mesh."), *MeshPath)};
@@ -47,8 +47,10 @@ TArray<FString> UDTHAnimScripting::WriteClips(const FString& MeshPath, const TAr
 		else if (Ambiguous.Num() > 1) Out.Add(FString::Printf(TEXT("ERROR: %d clips are called %s; name one by pack: %s."), Ambiguous.Num(), *L, *FString::Join(Ambiguous, TEXT(", "))));
 		else Out.Add(FString::Printf(TEXT("ERROR: No sampled clip %s."), *L));
 	}
+	TMap<FString, float> Speeds;
+	for (const FDTHAnimIndexEntry* C : Clips) Speeds.Add(C->Key(), Speed);
 	TArray<FDTHAnimMessage> Report;
-	DTHAnimBatch::WriteClips(*Mesh, Clips, Folder.IsEmpty() ? GetDefault<UDTHAnimSettings>()->SequenceFolder.Path : Folder, bReplace, Report);
+	DTHAnimBatch::WriteClips(*Mesh, Clips, Folder.IsEmpty() ? GetDefault<UDTHAnimSettings>()->SequenceFolder.Path : Folder, bReplace, Report, nullptr, &Speeds);
 	for (const FDTHAnimMessage& M : Report) Out.Add(M.ToLine());
 	return Out;
 }
@@ -70,7 +72,7 @@ TArray<FString> UDTHAnimScripting::ListScenes(const FString& Filter)
 }
 
 TArray<FString> UDTHAnimScripting::BuildScene(const FString& Scene, const TArray<FString>& Roles, const TArray<FString>& Meshes, bool bReplace,
-	const FString& Folder)
+	const FString& Folder, float Speed)
 {
 	if (Roles.Num() != Meshes.Num()) return {TEXT("ERROR: Give one mesh per role.")};
 	FDTHAnimIndex Index;
@@ -93,7 +95,7 @@ TArray<FString> UDTHAnimScripting::BuildScene(const FString& Scene, const TArray
 		Assigned.Add(Roles[I], Mesh);
 	}
 	TArray<FDTHAnimMessage> Report;
-	DTHAnimScenes::Build(*Found, Assigned, Folder.IsEmpty() ? GetDefault<UDTHAnimSettings>()->SequenceFolder.Path : Folder, bReplace, Report);
+	DTHAnimScenes::Build(*Found, Assigned, Folder.IsEmpty() ? GetDefault<UDTHAnimSettings>()->SequenceFolder.Path : Folder, bReplace, Report, nullptr, Speed);
 	TArray<FString> Out;
 	for (const FDTHAnimMessage& M : Report) Out.Add(M.ToLine());
 	return Out;

@@ -6,6 +6,7 @@
 #include "Widgets/Views/SListView.h"
 
 class IDetailsView;
+class SDTHAnimPreview;
 class ITableRow;
 class STableViewBase;
 class USkeletalMesh;
@@ -31,6 +32,13 @@ public:
 	int32 NumScenes() const { return SceneRows.Num(); }
 	/** Selects a listed scene and casts Mesh in every role (for scripting, tests and screenshots). */
 	void PreviewScene(int32 Row, USkeletalMesh* Mesh);
+	/** Selects a clip by key and plays it on the Clips page's character. False if no listed clip has that key. */
+	bool PreviewClip(const FString& Key);
+	/** Sets the Clips page's character. */
+	void SetCharacter(USkeletalMesh* Mesh);
+	/** The previews on the Clips and Scenes pages. */
+	TSharedPtr<SDTHAnimPreview> GetClipPreview() const { return ClipPreview; }
+	TSharedPtr<SDTHAnimPreview> GetScenePreview() const { return ScenePreview; }
 
 private:
 	enum class EPage : int32 { Settings, Clips, Scenes, Count };
@@ -55,6 +63,12 @@ private:
 	TSharedRef<ITableRow> MakeMessageRow(TSharedPtr<FDTHAnimMessage> Message, const TSharedRef<STableViewBase>& Owner);
 
 	void RefreshList();
+	/** Plays the selected clip on the character, at its speed. */
+	void RefreshClipPreview();
+	/** Plays the selected scene with every role that has a character, at the scene's speed. */
+	void RefreshScenePreview();
+	/** The speed set for a clip or scene key (1 if none). */
+	float SpeedOf(const FString& Key) const;
 	void SetMessages(const TArray<FDTHAnimMessage>& Report);
 	FReply OnWrite();
 	FText GetIndexSummary() const;
@@ -73,6 +87,11 @@ private:
 	/** Ticks by clip key (pack/label), kept across searches. */
 	TSet<FString> Checked;
 	TSharedPtr<SListView<TSharedPtr<FRow>>> ClipList;
+	/** The clip the Clips page previews (its key), and the play speed set per clip and per scene key. */
+	FString PreviewedClip;
+	TMap<FString, float> Speeds;
+	TSharedPtr<SDTHAnimPreview> ClipPreview;
+	TSharedPtr<SDTHAnimPreview> ScenePreview;
 	TArray<TSharedPtr<FDTHAnimMessage>> Messages;
 	TSharedPtr<SListView<TSharedPtr<FDTHAnimMessage>>> MessageList;
 

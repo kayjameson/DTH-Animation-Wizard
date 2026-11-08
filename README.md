@@ -2,7 +2,7 @@
 
 An Unreal Engine 5.8 editor plugin. It brings Daz Studio animations onto DazToHue Genesis 9 characters 1:1 with Daz, including multi-actor scenes: you give each role a character, and the actors play in sync.
 
-Each clip is sampled frame by frame in Daz Studio and recreated in Unreal with the DTH Pose Wizard's measured solve (its `DTHPoseCore` module). This plugin depends on the DTH Pose Wizard plugin.
+Each clip is sampled frame by frame in Daz Studio and recreated in Unreal with the DTH Pose Wizard's measured solve (its `DTHPoseCore` module). This plugin depends on the DTH Pose Wizard plugin, 0.3.0 or later (https://github.com/kayjameson/DTH-Pose-Wizard/releases): install both in your project's `Plugins` folder.
 
 ## Use
 
@@ -15,8 +15,10 @@ Each clip is sampled frame by frame in Daz Studio and recreated in Unreal with t
    Nothing is saved in Daz. A run that stops carries on where it left off. One set of samples serves every DTH Genesis 9 character.
 2. **Open Tools > DazToHue > DTH Animation Wizard.**
    - **Settings:** check *Daz Samples Index* and *Sequence Folder*.
-   - **Clips:** tick clips, pick a character, and write. Each clip becomes `Sequence Folder/<character>/<pack>/A_<clip>`: one key per Daz frame at the clip's frame rate, bone tracks only.
+   - **Clips:** click a clip to preview it, tick clips, pick a character, and write. Each clip becomes `Sequence Folder/<character>/<pack>/A_<clip>`: one key per Daz frame at the clip's frame rate, bone tracks only.
    - **Scenes:** clips made to play together (same pack, names differing only in the last word, e.g. `... Female` and `... Male`). Pick a scene, give each role a character, and build. Each role's sequence is written for its character, plus `Sequence Folder/Scenes/<pack>/LS_<scene>`, a level sequence that plays them together from frame 0. Every actor starts at the sequence's origin: the samples carry their placement relative to each other.
+   - **Preview** (on both pages): the clip, or every cast role of the scene, plays on its character in the wizard's own preview scene, with play/pause, a scrubber, loop, and front, side and three-quarter views. It plays exactly what the written sequence plays (the same solve, through the character's post-process blueprint). Nothing is written.
+   - **Speed** (under the preview): how fast the clip or scene plays, 0.1 to 4. Writing keeps it as each sequence's Rate Scale, so the frames are unchanged and the sequence plays at that speed everywhere, Sequencer included. A scene's speed applies to every role, and its tracks and playback range are stretched to match, so the actors stay in sync.
 3. **Play** a sequence on the character's body mesh (Animation Mode "Use Animation Asset", or an Animation track in Sequencer). Keep the character's DTH post-process blueprint on: it supplies the twist bones and the joint correctives.
 
 ### Genesis 8 clips
@@ -31,7 +33,7 @@ A Genesis 8 clip plays on a base Genesis 8 loaded beside the Genesis 9. On every
   - ankle heights against G8's, scaled: within 2.8 cm. The two figures' leg proportions differ.
 - The vendor's own G9 versions of these clips aren't the same motion as their G8 originals: forearms are about 20–26° off, and fingers up to 31°. So the G8 clip is checked against G8 itself, not against the G9 version.
 
-Scripting (Python `unreal.DTHAnimScripting`, or Blueprints): `OpenWizard`, `ListClips`, `WriteClips`, `ListScenes`, `BuildScene`.
+Scripting (Python `unreal.DTHAnimScripting`, or Blueprints): `OpenWizard`, `ListClips`, `WriteClips`, `ListScenes`, `BuildScene`. `WriteClips` and `BuildScene` take an optional `Speed`.
 
 ## What it is measured against
 
@@ -42,6 +44,8 @@ The `DTH.Anim.*` automation tests. Test assets go only under the settings' Test 
 - `P2.Batch`, `P2.Wizard`: batch writing, replacing, and the tab (with a screenshot of each page).
 - `P3.Pairs`, `P3.SameAsOneScene`, `P3.RelativePlacement`, `P3.LevelSequence`: scenes, sync and the actors' placement relative to each other.
 - `G8.CarriedOntoGenesis9`, `G8.ClipRecreated`, `G8.Screenshots`: a Genesis 8 clip carried onto Genesis 9 in Daz (how closely G9 followed G8), then recreated on the character against the same carry evaluated on the character in Daz, by the Phase 1 rule, plus screenshots.
+- `Preview.MatchesSequence`, `Preview.Speed`: the preview against the written sequence on the character (every bone, on and between frames, within 0.05 cm and 0.05°), speed written as Rate Scale, a scene's tracks and range stretched to its speed, plus screenshots.
+- `Measure.Smoothness`: not a check. How the test clips move between frames (8 points per frame through the post-process blueprint, and the preview at 60 fps), per bone and curve, to `Saved/DTHAnimationWizard/smoothness.tsv`.
 - `Setup.ImportTestCharacter`: imports the test character with the DTH Import Wizard (`-DTHAnimImportExport=<export folder>`).
 
 ## Known limits (DTH's or the engine's, reported, not corrected)

@@ -39,8 +39,10 @@ namespace DTHAnimScenes
 	 * Writes each role's sequence for the character assigned to it (by role label) and builds Root/Scenes/<pack>/LS_<scene>:
 	 * one spawnable actor per role with its character, its sequence on an animation track from frame 0, every actor at
 	 * the same origin (the samples carry their placement), the playback range the longest role, the display rate the
-	 * clips'. bReplace replaces sequences and the level sequence already there. Null and an error line on failure.
+	 * clips'. bReplace replaces sequences and the level sequence already there. Speed: every role's sequence plays at it
+	 * (its Rate Scale), so the actors stay in sync, and the tracks and the playback range are stretched to match. Null and
+	 * an error line on failure.
 	 */
 	ULevelSequence* Build(const FDTHAnimScene& Scene, const TMap<FString, USkeletalMesh*>& Assigned, const FString& Root, bool bReplace,
-		TArray<FDTHAnimMessage>& OutReport, TMap<FString, UAnimSequence*>* OutSequences = nullptr);
+		TArray<FDTHAnimMessage>& OutReport, TMap<FString, UAnimSequence*>* OutSequences = nullptr, float Speed = 1.f);
 }

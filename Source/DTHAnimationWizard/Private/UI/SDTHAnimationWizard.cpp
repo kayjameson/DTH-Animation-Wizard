@@ -1,5 +1,7 @@
 #include "UI/SDTHAnimationWizard.h"
 
+#include "UI/SDTHAnimPreview.h"
+
 #include "AssetRegistry/AssetData.h"
 #include "DTHAnimSettings.h"
 #include "DTHAnimationWizardModule.h"
@@ -238,13 +240,24 @@ TSharedRef<SWidget> SDTHAnimationWizard::MakeClipsPage()
 				[
 					SAssignNew(ClipList, SListView<TSharedPtr<FRow>>)
 					.ListItemsSource(&Rows)
-					.SelectionMode(ESelectionMode::None)
+					.SelectionMode(ESelectionMode::Single)
 					.OnGenerateRow(this, &SDTHAnimationWizard::MakeClipRow)
+					.OnSelectionChanged_Lambda([this](TSharedPtr<FRow> Row, ESelectInfo::Type)
+					{
+						if (!Row.IsValid()) return;
+						PreviewedClip = Row->Clip->Key();
+						RefreshClipPreview();
+					})
 				])
 		]
 		+ SSplitter::Slot().Value(0.45f)
 		[
 			SNew(SVerticalBox)
+			+ SVerticalBox::Slot().FillHeight(0.62f).Padding(0.f, 0.f, 0.f, 8.f)
+			[
+				MakeSection(LOCTEXT("PreviewSection", "Preview (click a clip; nothing is written)"),
+					SAssignNew(ClipPreview, SDTHAnimPreview))
+			]
 			+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 0.f, 0.f, 8.f)
 			[
 				MakeSection(LOCTEXT("WriteSection", "Write"),
@@ -261,7 +274,7 @@ TSharedRef<SWidget> SDTHAnimationWizard::MakeClipsPage()
 							SNew(SObjectPropertyEntryBox)
 							.AllowedClass(USkeletalMesh::StaticClass())
 							.ObjectPath_Lambda([this]() { return Character.IsValid() ? Character->GetPathName() : FString(); })
-							.OnObjectChanged_Lambda([this](const FAssetData& Asset) { Character = Cast<USkeletalMesh>(Asset.GetAsset()); })
+							.OnObjectChanged_Lambda([this](const FAssetData& Asset) { SetCharacter(Cast<USkeletalMesh>(Asset.GetAsset())); })
 						]
 					]
 					+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 0.f, 0.f, 4.f)
@@ -282,7 +295,7 @@ TSharedRef<SWidget> SDTHAnimationWizard::MakeClipsPage()
 						})
 					])
 			]
-			+ SVerticalBox::Slot().FillHeight(1.f)
+			+ SVerticalBox::Slot().FillHeight(0.38f)
 			[
 				MakeSection(LOCTEXT("ReportSection", "Report"),
 					SAssignNew(MessageList, SListView<TSharedPtr<FDTHAnimMessage>>)
@@ -300,6 +313,7 @@ TSharedRef<ITableRow> SDTHAnimationWizard::MakeClipRow(TSharedPtr<FRow> Row, con
 		: FString::Printf(TEXT("%s  |  %d frames at %g fps%s"), *C.Pack(), C.Frames, C.Fps,
 			C.KeyedMorphs > 0 ? *FString::Printf(TEXT("  |  %d keyed morphs (not written)"), C.KeyedMorphs) : TEXT(""))
 			+ (C.Source.IsEmpty() ? FString() : FString::Printf(TEXT("  |  from %s, carried onto Genesis 9"), *C.SourceName()));
+	const FString Key = C.Key();
 	return SNew(STableRow<TSharedPtr<FRow>>, Owner)
 		.Padding(FMargin(4.f, 2.f))
 		[
@@ -324,7 +338,11 @@ TSharedRef<ITableRow> SDTHAnimationWizard::MakeClipRow(TSharedPtr<FRow> Row, con
 				]
 				+ SVerticalBox::Slot().AutoHeight()
 				[
-					SNew(STextBlock).ColorAndOpacity(FSlateColor::UseSubduedForeground()).Text(FText::FromString(Details))
+					SNew(STextBlock).ColorAndOpacity(FSlateColor::UseSubduedForeground()).Text_Lambda([this, Details, Key]()
+					{
+						const float S = SpeedOf(Key);
+						return FText::FromString(FMath::IsNearlyEqual(S, 1.f) ? Details : Details + FString::Printf(TEXT("  |  plays at %gx"), S));
+					})
 				]
 			]
 		];
@@ -406,7 +424,7 @@ FReply SDTHAnimationWizard::OnWrite()
 	TArray<const FDTHAnimIndexEntry*> Clips;
 	for (const FDTHAnimIndexEntry& C : Index.Clips) if (Checked.Contains(C.Key()) && !C.Samples.IsEmpty()) Clips.Add(&C);
 	TArray<FDTHAnimMessage> Report;
-	const bool bOk = DTHAnimBatch::WriteClips(*Character, Clips, GetDefault<UDTHAnimSettings>()->SequenceFolder.Path, bReplace, Report);
+	const bool bOk = DTHAnimBatch::WriteClips(*Character, Clips, GetDefault<UDTHAnimSettings>()->SequenceFolder.Path, bReplace, Report, nullptr, &Speeds);
 	SetMessages(Report);
 	Status = bOk ? FString::Printf(TEXT("Wrote %d clips for %s."), Clips.Num(), *Character->GetName()) : TEXT("Some clips failed: see the report.");
 	return FReply::Handled();
@@ -454,6 +472,7 @@ TSharedRef<SWidget> SDTHAnimationWizard::MakeScenesPage()
 					{
 						SelectedScene = Row.IsValid() ? *Row : INDEX_NONE;
 						MakeRolesPanel();
+						RefreshScenePreview();
 					})
 				])
 		]
@@ -499,7 +518,12 @@ TSharedRef<SWidget> SDTHAnimationWizard::MakeScenesPage()
 						]
 					])
 			]
-			+ SVerticalBox::Slot().FillHeight(1.f)
+			+ SVerticalBox::Slot().FillHeight(0.62f).Padding(0.f, 0.f, 0.f, 8.f)
+			[
+				MakeSection(LOCTEXT("ScenePreviewSection", "Preview (the roles with a character; nothing is written)"),
+					SAssignNew(ScenePreview, SDTHAnimPreview))
+			]
+			+ SVerticalBox::Slot().FillHeight(0.38f)
 			[
 				MakeSection(LOCTEXT("SceneReportSection", "Report"),
 					SAssignNew(SceneMessageList, SListView<TSharedPtr<FDTHAnimMessage>>)
@@ -543,7 +567,11 @@ TSharedRef<SWidget> SDTHAnimationWizard::MakeRolesPanel()
 					const TWeakObjectPtr<USkeletalMesh>* M = RoleCharacters.Find(Label);
 					return M && M->IsValid() ? (*M)->GetPathName() : FString();
 				})
-				.OnObjectChanged_Lambda([this, Label](const FAssetData& Asset) { RoleCharacters.Add(Label, Cast<USkeletalMesh>(Asset.GetAsset())); })
+				.OnObjectChanged_Lambda([this, Label](const FAssetData& Asset)
+				{
+					RoleCharacters.Add(Label, Cast<USkeletalMesh>(Asset.GetAsset()));
+					RefreshScenePreview();
+				})
 			]
 		];
 	}
@@ -587,7 +615,8 @@ FReply SDTHAnimationWizard::OnBuildScene()
 	TMap<FString, USkeletalMesh*> Assigned;
 	for (const TPair<FString, TWeakObjectPtr<USkeletalMesh>>& P : RoleCharacters) if (P.Value.IsValid()) Assigned.Add(P.Key, P.Value.Get());
 	TArray<FDTHAnimMessage> Report;
-	ULevelSequence* Level = DTHAnimScenes::Build(Scenes[SelectedScene], Assigned, GetDefault<UDTHAnimSettings>()->SequenceFolder.Path, bReplace, Report);
+	ULevelSequence* Level = DTHAnimScenes::Build(Scenes[SelectedScene], Assigned, GetDefault<UDTHAnimSettings>()->SequenceFolder.Path, bReplace, Report,
+		nullptr, SpeedOf(Scenes[SelectedScene].Key()));
 	SetMessages(Report);
 	if (SceneMessageList.IsValid()) SceneMessageList->RequestListRefresh();
 	Status = Level ? FString::Printf(TEXT("Built %s."), *Level->GetPathName()) : TEXT("The scene was not built: see the report.");
@@ -601,6 +630,63 @@ void SDTHAnimationWizard::PreviewScene(int32 Row, USkeletalMesh* Mesh)
 	for (const FDTHAnimScene::FRole& R : Scenes[SelectedScene].Roles) RoleCharacters.Add(R.Label, Mesh);
 	if (SceneList.IsValid()) SceneList->SetSelection(SceneRows[Row]);
 	MakeRolesPanel();
+	RefreshScenePreview();
+}
+
+bool SDTHAnimationWizard::PreviewClip(const FString& Key)
+{
+	for (const TSharedPtr<FRow>& R : Rows)
+	{
+		if (R->Clip->Key() != Key) continue;
+		if (ClipList.IsValid()) { ClipList->SetSelection(R); ClipList->RequestScrollIntoView(R); }
+		PreviewedClip = Key;
+		RefreshClipPreview();
+		return true;
+	}
+	return false;
+}
+
+void SDTHAnimationWizard::SetCharacter(USkeletalMesh* Mesh)
+{
+	Character = Mesh;
+	RefreshClipPreview();
+}
+
+float SDTHAnimationWizard::SpeedOf(const FString& Key) const
+{
+	const float* S = Speeds.Find(Key);
+	return S ? *S : 1.f;
+}
+
+void SDTHAnimationWizard::RefreshClipPreview()
+{
+	if (!ClipPreview.IsValid()) return;
+	const FDTHAnimIndexEntry* Clip = Index.Clips.FindByPredicate([this](const FDTHAnimIndexEntry& C) { return C.Key() == PreviewedClip; });
+	TArray<SDTHAnimPreview::FActor> Actors;
+	if (Clip && Character.IsValid()) Actors.Add({Character.Get(), Clip->Samples, Clip->Label});
+	ClipPreview->SetSpeed(Clip ? SpeedOf(Clip->Key()) : 1.f);
+	const FString Key = Clip ? Clip->Key() : FString();
+	ClipPreview->OnSpeedChanged = [this, Key](float S) { if (!Key.IsEmpty()) Speeds.Add(Key, S); };
+	ClipPreview->SetActors(Actors);
+}
+
+void SDTHAnimationWizard::RefreshScenePreview()
+{
+	if (!ScenePreview.IsValid()) return;
+	TArray<SDTHAnimPreview::FActor> Actors;
+	FString Key;
+	if (Scenes.IsValidIndex(SelectedScene))
+	{
+		Key = Scenes[SelectedScene].Key();
+		for (const FDTHAnimScene::FRole& R : Scenes[SelectedScene].Roles)
+		{
+			const TWeakObjectPtr<USkeletalMesh>* M = RoleCharacters.Find(R.Label);
+			if (M && M->IsValid()) Actors.Add({M->Get(), R.Clip->Samples, R.Label});
+		}
+	}
+	ScenePreview->SetSpeed(Key.IsEmpty() ? 1.f : SpeedOf(Key));
+	ScenePreview->OnSpeedChanged = [this, Key](float S) { if (!Key.IsEmpty()) Speeds.Add(Key, S); };
+	ScenePreview->SetActors(Actors);
 }
 
 #undef LOCTEXT_NAMESPACE

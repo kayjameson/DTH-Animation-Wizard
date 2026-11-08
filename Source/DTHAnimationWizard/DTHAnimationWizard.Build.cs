@@ -30,6 +30,9 @@ public class DTHAnimationWizard : ModuleRules
 			"PropertyEditor",
 			"ApplicationCore",
 			"ImageCore",
+			// The preview: its own scene and viewport, rendered for screenshots.
+			"AdvancedPreviewScene",
+			"RenderCore",
 			"LevelSequence",
 			"MovieScene",
 			"MovieSceneTracks",

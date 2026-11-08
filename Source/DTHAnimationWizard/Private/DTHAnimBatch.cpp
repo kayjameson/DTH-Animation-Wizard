@@ -11,6 +11,8 @@
 #include "ObjectTools.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
+#include "UObject/Package.h"
+#include "UObject/SavePackage.h"
 
 #define LOCTEXT_NAMESPACE "DTHAnimBatch"
 
@@ -129,8 +131,26 @@ namespace DTHAnimBatch
 		return Root / DTHPoseCharacter::AssetName(Character) / PackFolder / (TEXT("A_") + DTHPoseCharacter::AssetName(Clip.Label));
 	}
 
+	float ClampSpeed(float Speed)
+	{
+		return FMath::Clamp(FMath::IsFinite(Speed) ? Speed : 1.f, 0.1f, 4.f);
+	}
+
+	void SetSpeed(UAnimSequence& Sequence, float Speed)
+	{
+		Speed = ClampSpeed(Speed);
+		if (FMath::IsNearlyEqual(Sequence.RateScale, Speed, 1e-4f)) return;
+		Sequence.Modify();
+		Sequence.RateScale = Speed;
+		UPackage* Package = Sequence.GetOutermost();
+		Package->MarkPackageDirty();
+		FSavePackageArgs SaveArgs;
+		SaveArgs.TopLevelFlags = RF_Public | RF_Standalone;
+		UPackage::SavePackage(Package, &Sequence, *FPackageName::LongPackageNameToFilename(Package->GetName(), FPackageName::GetAssetPackageExtension()), SaveArgs);
+	}
+
 	bool WriteClips(USkeletalMesh& Mesh, TConstArrayView<const FDTHAnimIndexEntry*> Clips, const FString& Root, bool bReplace,
-		TArray<FDTHAnimMessage>& OutReport, TArray<UAnimSequence*>* OutSequences)
+		TArray<FDTHAnimMessage>& OutReport, TArray<UAnimSequence*>* OutSequences, const TMap<FString, float>* Speeds)
 	{
 		if (!Mesh.GetSkeleton())
 		{
@@ -190,11 +210,15 @@ namespace DTHAnimBatch
 				++Failed;
 				continue;
 			}
+			const float* Speed = Speeds ? Speeds->Find(Entry->Key()) : nullptr;
+			if (Speed) SetSpeed(*Sequence, *Speed);
 			if (OutSequences) OutSequences->Add(Sequence);
 			++Written;
 			Frames += Clip.Roles[0].Frames.Num();
-			OutReport.Add(FDTHAnimMessage::Info(FString::Printf(TEXT("%s: %d frames at %s, %.2f s, written to %s."), *Entry->Label,
-				Clip.Roles[0].Frames.Num(), *Clip.FrameRate().ToPrettyText().ToString(), Sequence->GetPlayLength(), *Sequence->GetPathName())));
+			const FString AtSpeed = FMath::IsNearlyEqual(Sequence->RateScale, 1.f) ? FString()
+				: FString::Printf(TEXT(", playing at %gx (%.2f s)"), Sequence->RateScale, Sequence->GetPlayLength() / Sequence->RateScale);
+			OutReport.Add(FDTHAnimMessage::Info(FString::Printf(TEXT("%s: %d frames at %s, %.2f s, written to %s%s."), *Entry->Label,
+				Clip.Roles[0].Frames.Num(), *Clip.FrameRate().ToPrettyText().ToString(), Sequence->GetPlayLength(), *Sequence->GetPathName(), *AtSpeed)));
 			if (!Clip.Source.Figure.IsEmpty())
 			{
 				OutReport.Add(FDTHAnimMessage::Info(FString::Printf(TEXT("%s: %s"), *Entry->Label, *Clip.Source.Describe())));

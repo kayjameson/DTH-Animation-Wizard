@@ -42,8 +42,9 @@ namespace DTHAnimScenes
 	}
 
 	ULevelSequence* Build(const FDTHAnimScene& Scene, const TMap<FString, USkeletalMesh*>& Assigned, const FString& Root, bool bReplace,
-		TArray<FDTHAnimMessage>& OutReport, TMap<FString, UAnimSequence*>* OutSequences)
+		TArray<FDTHAnimMessage>& OutReport, TMap<FString, UAnimSequence*>* OutSequences, float Speed)
 	{
+		Speed = DTHAnimBatch::ClampSpeed(Speed);
 		// Each role's sequence for its character.
 		TArray<TPair<const FDTHAnimScene::FRole*, UAnimSequence*>> Parts;
 		FFrameRate Rate(30, 1);
@@ -68,6 +69,8 @@ namespace DTHAnimScenes
 				OutReport.Add(FDTHAnimMessage::Error(FString::Printf(TEXT("%s: no sequence at %s."), *Role.Label, *Path)));
 				return nullptr;
 			}
+			// Every role at the scene's speed, written now or kept from before, so the actors stay in sync.
+			DTHAnimBatch::SetSpeed(*Sequence, Speed);
 			if (Parts.IsEmpty()) Rate = Sequence->GetSamplingFrameRate();
 			else if (Sequence->GetSamplingFrameRate() != Rate)
 			{
@@ -102,7 +105,8 @@ namespace DTHAnimScenes
 		UMovieScene* Movie = Sequence->GetMovieScene();
 		Movie->SetDisplayRate(Rate);
 		const FFrameRate Tick = Movie->GetTickResolution();
-		const FFrameNumber End = FFrameRate::TransformTime(FFrameTime(FMath::Max(Frames - 1, 1)), Rate, Tick).CeilToFrame();
+		// At a speed other than 1 the scene lasts its frames divided by the speed.
+		const FFrameNumber End = (FFrameRate::TransformTime(FFrameTime(FMath::Max(Frames - 1, 1)), Rate, Tick) / Speed).CeilToFrame();
 		Movie->SetPlaybackRange(TRange<FFrameNumber>(FFrameNumber(0), End));
 
 		for (const TPair<const FDTHAnimScene::FRole*, UAnimSequence*>& P : Parts)
@@ -134,6 +138,8 @@ namespace DTHAnimScenes
 				OutReport.Add(FDTHAnimMessage::Error(FString::Printf(TEXT("%s: could not add its animation track."), *Label)));
 				return nullptr;
 			}
+			// Sequencer plays the sequence at its Rate Scale; the section is as long as the sequence takes at that speed.
+			Section->SetRange(TRange<FFrameNumber>(FFrameNumber(0), (P.Value->GetPlayLength() / Speed * Tick).CeilToFrame()));
 		}
 		FAssetRegistryModule::AssetCreated(Sequence);
 		Package->MarkPackageDirty();
@@ -143,8 +149,9 @@ namespace DTHAnimScenes
 
 		FString Roles;
 		for (const auto& P : Parts) Roles += FString::Printf(TEXT("%s%s as %s"), Roles.IsEmpty() ? TEXT("") : TEXT(", "), *Assigned[P.Key->Label]->GetName(), *P.Key->Label);
-		OutReport.Add(FDTHAnimMessage::Info(FString::Printf(TEXT("%s: %s, %d frames at %s, built as %s."), *Scene.Name, *Roles, Frames,
-			*Rate.ToPrettyText().ToString(), *Sequence->GetPathName())));
+		const FString AtSpeed = FMath::IsNearlyEqual(Speed, 1.f) ? FString() : FString::Printf(TEXT(" playing at %gx"), Speed);
+		OutReport.Add(FDTHAnimMessage::Info(FString::Printf(TEXT("%s: %s, %d frames at %s%s, built as %s."), *Scene.Name, *Roles, Frames,
+			*Rate.ToPrettyText().ToString(), *AtSpeed, *Sequence->GetPathName())));
 		OutReport.Add(FDTHAnimMessage::Info(TEXT("Manual steps: drag the level sequence into a level to play it. Every actor starts at the sequence's origin: "
 			"to place the group, give the sequence's actors one shared parent, or move them together. If a character's proportions differ "
 			"from base Genesis 9, contacts between the actors (hands, embraces) may not meet exactly.")));

@@ -102,10 +102,23 @@
 		return {bones: bones, morphs: morphs};
 	}
 
-	// Numeric properties of every figure, bone and morph, to set the figure back after a clip.
+	// A property's keys, as [time, value] pairs.
+	function keysOf(p) {
+		var out = [], n = p.getNumKeys ? p.getNumKeys() : 0;
+		for (var k = 0; k < n; k++) out.push([ticks(p.getKeyTime(k)), p.getKeyValue(k)]);
+		return out;
+	}
+	function sameKeys(p, keys) {
+		var n = p.getNumKeys ? p.getNumKeys() : 0;
+		if (n != keys.length) return false;
+		for (var k = 0; k < n; k++) if (ticks(p.getKeyTime(k)) != keys[k][0] || p.getKeyValue(k) != keys[k][1]) return false;
+		return true;
+	}
+
+	// Numeric properties of every figure, bone and morph, with their keys, to set the figure back after a clip.
 	function snapshot() {
 		var snap = [];
-		function add(p) { if (p && p.inherits("DzNumericProperty")) snap.push([p, p.getRawValue(), p.getNumKeys ? p.getNumKeys() : 0]); }
+		function add(p) { if (p && p.inherits("DzNumericProperty")) snap.push([p, p.getRawValue(), p.getNumKeys ? p.getNumKeys() : 0, keysOf(p)]); }
 		for (var s = 0; s < Scene.getNumSkeletons(); s++) {
 			var fig = Scene.getSkeleton(s), nodes = [fig].concat(fig.getAllBones());
 			for (var i = 0; i < nodes.length; i++)
@@ -118,13 +131,19 @@
 		}
 		return snap;
 	}
-	// Takes the keys off every property the clip keyed (its key count changed), then sets the values back. Daz holds a
-	// default key on many properties (every morph), which are left as they are.
+	// Puts every property's keys back exactly as they were, then its value. Daz holds a default key on frame 0 on many
+	// properties (a fresh Genesis 9's bones and morphs); a clip that keys a channel only from a later frame eases in from
+	// that key, so it must survive: taking every key off instead left the next clip holding its first key's value from
+	// frame 0 (spine2 and neck1 of G9 clip 001 after a Genesis 8 clip, 0.65 deg, the head 0.7 cm off, 2026-11-08).
 	function restore(snap) {
 		for (var i = 0; i < snap.length; i++) {
-			var p = snap[i][0];
-			if (p.getNumKeys && p.getNumKeys() != snap[i][2]) p.deleteAllKeys();
-			if (p.getRawValue() != snap[i][1]) p.setValue(snap[i][1]);
+			var p = snap[i][0], keys = snap[i][3];
+			if (p.getNumKeys && !sameKeys(p, keys)) {
+				p.deleteAllKeys();
+				for (var k = 0; k < keys.length; k++) p.setValue(keys[k][0], keys[k][1]);
+			}
+			// A keyed property's keys are its value; setting it here would key the current time.
+			if (!keys.length && p.getRawValue() != snap[i][1]) p.setValue(snap[i][1]);
 		}
 	}
 

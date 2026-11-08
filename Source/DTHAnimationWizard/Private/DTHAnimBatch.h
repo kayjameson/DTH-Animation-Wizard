@@ -66,8 +66,15 @@ namespace DTHAnimBatch
 	/**
 	 * Writes each clip as a bone-track sequence for Mesh (DTHAnimBuild::Write: the Pose Wizard's solve, one key per frame
 	 * at the clip's rate). bReplace: a sequence already at a clip's path is replaced; otherwise the clip is left as it is
-	 * and reported. Ends with the summary and the manual steps. False if any clip failed.
+	 * and reported. Speeds: a play speed per clip key (1 where not given), kept as each sequence's Rate Scale: the frames
+	 * are unchanged, the sequence plays them faster or slower everywhere (Sequencer included). Ends with the summary and
+	 * the manual steps. False if any clip failed.
 	 */
 	bool WriteClips(USkeletalMesh& Mesh, TConstArrayView<const FDTHAnimIndexEntry*> Clips, const FString& Root, bool bReplace,
-		TArray<FDTHAnimMessage>& OutReport, TArray<UAnimSequence*>* OutSequences = nullptr);
+		TArray<FDTHAnimMessage>& OutReport, TArray<UAnimSequence*>* OutSequences = nullptr, const TMap<FString, float>* Speeds = nullptr);
+
+	/** Sets a sequence's play speed (its Rate Scale) and saves it if that changed. Speeds are kept between 0.1 and 4. */
+	void SetSpeed(UAnimSequence& Sequence, float Speed);
+	/** The speed a wizard or script asked for, kept between 0.1 and 4. */
+	float ClampSpeed(float Speed);
 }
