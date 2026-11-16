@@ -202,8 +202,8 @@ namespace DTHAnimBatch
 				}
 			}
 			FDTHAnimClip Clip;
-			FString Error;
-			UAnimSequence* Sequence = Clip.Load(Entry->Samples, Error) ? DTHAnimBuild::Write(Mesh, Clip, 0, Folder, Name, Error) : nullptr;
+			FString Error, FaceReport;
+			UAnimSequence* Sequence = Clip.Load(Entry->Samples, Error) ? DTHAnimBuild::Write(Mesh, Clip, 0, Folder, Name, Error, &FaceReport) : nullptr;
 			if (!Sequence)
 			{
 				OutReport.Add(FDTHAnimMessage::Error(FString::Printf(TEXT("%s: %s"), *Entry->Label, *Error)));
@@ -223,7 +223,12 @@ namespace DTHAnimBatch
 			{
 				OutReport.Add(FDTHAnimMessage::Info(FString::Printf(TEXT("%s: %s"), *Entry->Label, *Clip.Source.Describe())));
 			}
-			if (!Clip.KeyedMorphs.IsEmpty())
+			if (!FaceReport.IsEmpty())
+			{
+				OutReport.Add(FDTHAnimMessage::Info(FString::Printf(TEXT("%s: its %s."), *Entry->Label, *FaceReport)));
+			}
+			// Face shapes are carried by the face curves when the clip was sampled with its face; body shapes never are.
+			if (!Clip.KeyedMorphs.IsEmpty() && !Clip.HasFace())
 			{
 				++WithMorphs;
 				OutReport.Add(FDTHAnimMessage::Warning(FString::Printf(TEXT("%s keys %d morphs (face or body shapes), e.g. %s. Sequences carry bones only, so these are not in it."),

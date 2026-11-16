@@ -17,6 +17,7 @@ public class DTHAnimationWizard : ModuleRules
 		{
 			// The Pose Wizard's measured core: solve, bone map, retarget inverse, writer, Daz state format, body harness.
 			"DTHPoseCore",
+			"DTHFaceCore",
 			"DeveloperSettings",
 			"Json",
 			"UnrealEd",

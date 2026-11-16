@@ -14,6 +14,12 @@
 // frame by frame (see "Genesis 8 clips" below). Their samples are G9 samples like any other, plus a "source" block that
 // says how closely G9 followed G8.
 //
+// The face: a clip that keys the face (FACS morphs, the bones under the head, the Mouth figure's tongue, the Eyes) gets
+// its face sampled on every frame where it moves. A second, never-animated Genesis 9 stands beside the clip's figure; on
+// each such frame the clip figure's face values are put on it at frame 0 (the body left out, nothing keyed on the clip)
+// and its head, Mouth and Eyes are measured as the Expression Wizard measures an expression (face.json and
+// clips/<clip>.face.txt, one line per frame and face figure). The plugin fits DTH's face curves to each frame's shape.
+//
 // Each role holds "rest" (UnrealPose, DTH ROM frame 1: the rest the solve measures from, as in the Pose Wizard),
 // "zero" (the figure as loaded) and "frames". Positions are Daz world space (cm, Y up), rotations Daz world-space
 // quaternions [x, y, z, w], in the format of the
@@ -27,6 +33,9 @@
 //   args.figure   load this figure or scene file instead of base Genesis 9
 //   args.resume   true: skip clips whose samples file is already there
 //   args.force    true: replace the open scene even if it has unsaved changes (for runs that load their own scene)
+//   args.face     false: leave the faces out (default true)
+//   args.testFace a list of [frame, {"<figure>|<morph or bone|channel>": value}] to key on the clip figure instead of
+//                 loading clips: a face test clip (with args.files empty)
 (function(){
 	var passed = getArguments();
 	var A = (typeof args !== "undefined" && args) ? args : (passed.length && typeof passed[0] == "object" ? passed[0] : {});
@@ -39,6 +48,12 @@
 	// DazToHue's Genesis 9 ROM: its frame 1 is UnrealPose, the pose DTH's UE bind pose is (the Pose Wizard's rest).
 	var ROM_FILE = "DazToHue/Poses/Genesis 9/DQS/G9 DQS JCM FAC - Base.duf";
 	var result = {messages: [], clips: [], errors: []};
+	var FACE_ON = A.face !== false;
+	// The face measured (as the Pose Wizard's sampler does): the head (every vertex above HEAD_DEPTH cm below the top of the
+	// figure), the Mouth and the Eyes. Displacements in GEO_UNIT cm integers.
+	var FACE_NAMES = ["Genesis9", "Genesis9Mouth", "Genesis9Eyes"];
+	var HEAD_DEPTH = 26.0;
+	var GEO_UNIT = 1e-4;
 
 	function note(s) { result.messages.push(s); print(s); }
 	function exists(path) { return new DzFileInfo(path).exists(); }
@@ -58,7 +73,10 @@
 	}
 
 	function mainFigure() {
-		for (var i = 0; i < Scene.getNumSkeletons(); i++) if (Scene.getSkeleton(i).getName() == "Genesis9") return Scene.getSkeleton(i);
+		for (var i = 0; i < Scene.getNumSkeletons(); i++) {
+			var s = Scene.getSkeleton(i);
+			if (s.getName() == "Genesis9" && !(FACEFIG && FACEFIG.figures[0] == s)) return s;
+		}
 		return null;
 	}
 	function channel(b, c) {
@@ -166,6 +184,27 @@
 		return {last: last, keyedMorphs: keyedMorphs, keyedChannels: keyedBones};
 	}
 
+	// Base Genesis 9 as Daz ships it: a product that switches its own morph on for every Genesis 9 (a character's HD
+	// details, for one) makes the figure something else, and its face no longer lines up with a base DTH export. Every
+	// morph that is on but is not one of Daz's own Genesis 9 morphs (facs_, head_, body_) is set to 0, and named.
+	function baseOnly() {
+		var off = [];
+		for (var s = 0; s < Scene.getNumSkeletons(); s++) {
+			var fig = Scene.getSkeleton(s), obj = fig.getObject();
+			if (fig.getName().indexOf("Genesis9") != 0) continue;
+			for (var m = 0; obj && m < obj.getNumModifiers(); m++) {
+				var mod = obj.getModifier(m);
+				if (!mod || !mod.inherits("DzMorph")) continue;
+				var name = mod.getName(), vc = mod.getValueControl();
+				if (name.indexOf("facs_") == 0 || name.indexOf("head_") == 0 || name.indexOf("body_") == 0) continue;
+				if (Math.abs(vc.getRawValue()) < 1e-6) continue;
+				vc.setValue(0);
+				off.push(fig.getName() + " " + name);
+			}
+		}
+		if (off.length) note("Set to 0 on the base figure (a product switches them on for every Genesis 9): " + off.join(", ") + ".");
+	}
+
 	function loadFigure(again) {
 		if (Scene.needsSave() && !A.force && !again) { result.error = "The open scene has unsaved changes. Save or close it, then run this again."; return false; }
 		Scene.clear();
@@ -174,6 +213,7 @@
 		if (!fig) { result.error = "Genesis 9 is not installed (" + FIGURE_FILE + ")."; return false; }
 		App.getContentMgr().openFile(fig, true);
 		if (!mainFigure()) { result.error = "Loading " + FIGURE_FILE + " did not give a Genesis9 figure."; return false; }
+		if (!A.figure) baseOnly();
 		var range = new DzTimeRange(0, MAX_FRAMES * Scene.getTimeStep());
 		Scene.setAnimRange(range); Scene.setPlayRange(range);
 		Scene.setTime(0);
@@ -373,10 +413,158 @@
 		}
 	}
 
+
+	// ---- The face ----------------------------------------------------------------------------------------------------
+	// The face figure: a base Genesis 9 loaded beside the clip's figure and never animated, with its Mouth and Eyes.
+	var FACEFIG = null;
+	function followers(fig) {
+		var out = [];
+		for (var i = 0; i < Scene.getNumSkeletons(); i++) { var s = Scene.getSkeleton(i); if (s.getFollowTarget && s.getFollowTarget() == fig) out.push(s); }
+		return out;
+	}
+	function loadFaceFigure() {
+		// figures already there, by object (a second Genesis 9 may take the same name as the first)
+		var before = [];
+		for (var i = 0; i < Scene.getNumSkeletons(); i++) before.push(Scene.getSkeleton(i));
+		function seen(s) { for (var q = 0; q < before.length; q++) if (before[q] == s) return true; return false; }
+		Scene.selectAllNodes(false);
+		App.getContentMgr().openFile(contentPath("People/Genesis 9/Genesis 9.duf"), true);
+		var fig = null;
+		for (var j = 0; j < Scene.getNumSkeletons(); j++) {
+			var s = Scene.getSkeleton(j);
+			if (!seen(s) && s.getName().indexOf("Genesis9") == 0 && !(s.getFollowTarget && s.getFollowTarget())) fig = s;
+		}
+		if (!fig) return null;
+		var parts = [fig, null, null], f = followers(fig);
+		for (var k = 0; k < f.length; k++) {
+			if (f[k].getName().indexOf("Mouth") >= 0) parts[1] = f[k];
+			if (f[k].getName().indexOf("Eyes") >= 0) parts[2] = f[k];
+		}
+		// the same base as the clip's figure
+		var off = [];
+		for (var p = 0; p < 3; p++) {
+			var obj = parts[p] ? parts[p].getObject() : null;
+			for (var m = 0; obj && m < obj.getNumModifiers(); m++) {
+				var mod = obj.getModifier(m);
+				if (!mod || !mod.inherits("DzMorph")) continue;
+				var name = mod.getName();
+				if (name.indexOf("facs_") == 0 || name.indexOf("head_") == 0 || name.indexOf("body_") == 0) continue;
+				if (Math.abs(mod.getValueControl().getRawValue()) > 1e-6) mod.getValueControl().setValue(0);
+			}
+		}
+		// out of the clip figure's way (the face is measured against its own rest, so where it stands does not matter)
+		fig.getXPosControl().setValue(200);
+		return {figures: parts};
+	}
+	function positions(fig) {
+		var obj = fig.getObject();
+		obj.forceCacheUpdate(fig, false);
+		return obj.getCachedGeom();
+	}
+	// The face region on the face figure at rest (written as face.json, with the canonical figure names).
+	var FACE = null;
+	function faceRegion() {
+		var out = [];
+		for (var f = 0; f < FACEFIG.figures.length; f++) {
+			var fig = FACEFIG.figures[f];
+			if (!fig) continue;
+			var geo = positions(fig), mesh = fig.getObject().getCurrentShape().getGeometry();
+			var n = geo.getNumVertices(), top = -1e9, keep = [], local = {};
+			for (var v = 0; v < n; v++) top = Math.max(top, geo.getVertex(v).y);
+			for (var v2 = 0; v2 < n; v2++) {
+				if (f > 0 || geo.getVertex(v2).y > top - HEAD_DEPTH) { local[v2] = keep.length; keep.push(v2); }
+			}
+			var facets = [];
+			for (var k = 0; k < mesh.getNumFacets(); k++) {
+				var fc = mesh.getFacet(k), ids = [fc.vertIdx1, fc.vertIdx2, fc.vertIdx3, fc.vertIdx4], ok = true, row = [];
+				for (var c = 0; c < 4; c++) {
+					if (ids[c] < 0) { row.push(-1); continue; }
+					if (local[ids[c]] === undefined) { ok = false; break; }
+					row.push(local[ids[c]]);
+				}
+				if (ok) facets.push(row);
+			}
+			// the rest relative to the figure's own position, so the face figure may stand anywhere
+			var rest = [], o = FACEFIG.figures[0].getWSPos();
+			for (var r = 0; r < keep.length; r++) { var p = geo.getVertex(keep[r]); rest.push(p.x - o.x, p.y - o.y, p.z - o.z); }
+			out.push({name: FACE_NAMES[f], vertices: keep, facets: facets, rest: rest, figure: f});
+		}
+		return out;
+	}
+	function faceGeometryLines(index) {
+		var lines = [], o = FACEFIG.figures[0].getWSPos();
+		for (var f = 0; f < FACE.length; f++) {
+			var geo = positions(FACEFIG.figures[FACE[f].figure]), parts = [], count = 0, R = FACE[f].rest;
+			for (var i = 0; i < FACE[f].vertices.length; i++) {
+				var p = geo.getVertex(FACE[f].vertices[i]);
+				var dx = Math.round((p.x - o.x - R[3 * i]) / GEO_UNIT), dy = Math.round((p.y - o.y - R[3 * i + 1]) / GEO_UNIT), dz = Math.round((p.z - o.z - R[3 * i + 2]) / GEO_UNIT);
+				if (dx || dy || dz) { parts.push(i, dx, dy, dz); ++count; }
+			}
+			lines.push(index + " " + f + " " + count + (count ? " " + parts.join(" ") : ""));
+		}
+		return lines;
+	}
+	// A figure's face properties by a name that is the same on the clip's figure and the face figure: "<part>|p|<property>"
+	// for the figure's own properties (a pack's expression alias), "<part>|m|<morph>"
+	// for every morph but the body's own (body_), "<part>|b|<bone>|<channel>" for the bones under the head (the main figure) and every bone
+	// of the Mouth and Eyes (parts 0, 1, 2).
+	function faceProps(parts) {
+		var out = {};
+		for (var s = 0; s < parts.length; s++) {
+			var fig = parts[s];
+			if (!fig) continue;
+			// the figure's own properties (a pack's expression alias lives here), not its placement in the scene
+			var place = [fig.getXPosControl(), fig.getYPosControl(), fig.getZPosControl(), fig.getXRotControl(), fig.getYRotControl(),
+				fig.getZRotControl(), fig.getScaleControl(), fig.getXScaleControl(), fig.getYScaleControl(), fig.getZScaleControl()];
+			for (var fpn = 0; fpn < fig.getNumProperties(); fpn++) {
+				var fpp = fig.getProperty(fpn), isPlace = false;
+				for (var pl = 0; pl < place.length; pl++) if (place[pl] == fpp) isPlace = true;
+				if (!isPlace && fpp.getName().indexOf("body_") != 0 && fpp.inherits("DzNumericProperty")) out[s + "|p|" + fpp.getName()] = fpp;
+			}
+			var bones = fig.getAllBones(), head = null, i;
+			for (i = 0; i < bones.length; i++) if (bones[i].getName() == "head") head = bones[i];
+			for (i = 0; i < bones.length; i++) {
+				var b = bones[i], under = s > 0;
+				if (s == 0 && head) { var q = b.getNodeParent(); while (q && q != head) q = q.getNodeParent(); under = q == head; }
+				if (!under) continue;
+				for (var c = 0; c < CHANNELS.length; c++) out[s + "|b|" + b.getName() + "|" + CHANNELS[c]] = channel(b, CHANNELS[c]);
+			}
+			var obj = fig.getObject();
+			for (var m = 0; obj && m < obj.getNumModifiers(); m++) {
+				var mod = obj.getModifier(m);
+				if (!mod || !mod.inherits("DzMorph")) continue;
+				var name = mod.getName();
+				// a face value: any morph but the body's own (body_); a pack's expression morph drives FACS
+				if (name.indexOf("body_") != 0) out[s + "|m|" + name] = mod.getValueControl();
+			}
+		}
+		return out;
+	}
+	// The clip figure's face properties the clip keyed, each with the face figure's own: [[clip property, face property]].
+	function clipFace(main, snap) {
+		var keyed = [];
+		var parts = [main, null, null], f = followers(main);
+		for (var k = 0; k < f.length; k++) {
+			if (f[k].getName().indexOf("Mouth") >= 0) parts[1] = f[k];
+			if (f[k].getName().indexOf("Eyes") >= 0) parts[2] = f[k];
+		}
+		// the properties the clip keyed (one pass over the snapshot), then the face ones among them
+		var changed = [];
+		for (var i = 0; i < snap.length; i++) { var sp = snap[i][0]; if (sp.getNumKeys && sp.getNumKeys() != snap[i][2]) changed.push(sp); }
+		if (!changed.length) return keyed;
+		var mine = faceProps(parts), theirs = faceProps(FACEFIG.figures);
+		for (var key in mine) {
+			var p = mine[key];
+			if (typeof p != "object" || !p || !theirs[key]) continue;
+			for (var c = 0; c < changed.length; c++) if (changed[c] == p) { keyed.push([p, theirs[key]]); break; }
+		}
+		return keyed;
+	}
+
 	function safeName(s) { return s.replace(/[^A-Za-z0-9_\-]+/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, ""); }
 
 	function sampleClip(clip, rest, zero, snap) {
-		var info = new DzFileInfo(clip.file), label = info.completeBaseName();
+		var info = new DzFileInfo(clip.file), label = clip.test ? "FaceTest" : info.completeBaseName();
 		var outFile = OUT + "/clips/" + safeName(clip.pack + "_" + label) + ".json";
 		var summaryFile = outFile.substring(0, outFile.length - 5) + ".summary.json";
 		if (A.resume && exists(outFile) && exists(summaryFile)) {
@@ -389,7 +577,7 @@
 		Scene.setTime(0);
 		Scene.selectAllNodes(false); main.select(true); Scene.setPrimarySelection(main);
 		var started = new Date().getTime();
-		var ok = App.getContentMgr().openFile(clip.file, true);
+		var ok = clip.test ? true : App.getContentMgr().openFile(clip.file, true);
 		if (Scene.getNumNodes() != nodes) {
 			for (var n = Scene.getNumNodes() - 1; n >= nodes; n--) Scene.removeNode(Scene.getNode(n));
 			restore(snap);
@@ -398,6 +586,7 @@
 		}
 		if (!ok) { restore(snap); result.errors.push(clip.file + ": Daz could not load it."); return; }
 		var keys = keyInfo(snap, step);
+		var face = FACE_ON && FACEFIG ? clipFace(main, snap) : [], faceLines = [], faceFrames = 0, lastValues = null;
 		var last = typeof A.last == "number" ? Math.min(A.last, keys.last) : keys.last;
 		var loaded = new Date().getTime(), frames = [], worst = {rotDeg: 0, rotBone: "", segDeg: 0, segBone: "", beyond: {}, footCm: 0};
 		if (rt) unclamp(rt, true);
@@ -405,6 +594,19 @@
 			Scene.setTime(fr * Scene.getTimeStep());
 			if (rt) retargetFrame(rt, worst);
 			frames.push(sample());
+			if (face.length) {
+				// the clip's face values on this frame, put on the face figure at frame 0 and measured there
+				var values = [], same = !!lastValues;
+				for (var fv = 0; fv < face.length; fv++) { values.push(face[fv][0].getRawValue()); if (same && values[fv] != lastValues[fv]) same = false; }
+				if (!same) {
+					Scene.setTime(0);
+					for (var fs = 0; fs < face.length; fs++) if (face[fs][1].getRawValue() != values[fs]) face[fs][1].setValue(values[fs]);
+					faceLines.push(faceGeometryLines(fr).join("\n"));
+					faceFrames++;
+					lastValues = values;
+				}
+				else faceLines.push(faceLines.length ? faceLines[faceLines.length - 1].replace(/^\d+ /gm, fr + " ") : "");
+			}
 		}
 		var sampled = new Date().getTime();
 		Scene.setTime(0);
@@ -439,13 +641,35 @@
 			restoreDriftCm: round(drift, 6),
 			roles: [{label: "", figure: "Genesis9", rest: rest, zero: zero, frames: frames}]};
 		new DzDir(OUT + "/clips").mkpath(OUT + "/clips");
+		if (face.length) {
+			var faceFile = outFile.substring(0, outFile.length - 5) + ".face.txt";
+			writeText(faceFile, faceLines.join("\n"));
+			doc.face = "../face.json";
+			doc.faceGeometry = new DzFileInfo(faceFile).fileName();
+			doc.faceKeyed = face.length;
+		}
 		if (!writeText(outFile, JSON.stringify(doc))) { result.errors.push(clip.file + ": could not write " + outFile); return; }
-		var summary = {label: label, file: clip.file, samples: outFile, frames: last + 1, fps: doc.fps,
+		var summary = {label: label, file: clip.file, samples: outFile, frames: last + 1, fps: doc.fps, faceFrames: faceFrames,
 			sampleMs: sampled - loaded, keyedMorphs: keys.keyedMorphs.length, restoreDriftCm: doc.restoreDriftCm};
 		if (source) { summary.source = source.figure; summary.maxSegmentGapDeg = source.maxSegmentGapDeg; summary.maxRotationGapDeg = source.maxRotationGapDeg; summary.beyondG9Limits = source.beyondG9Limits.length; }
 		writeText(summaryFile, JSON.stringify(summary));
 		result.clips.push(summary);
-		note(label + ": " + (last + 1) + " frames in " + (sampled - loaded) + " ms.");
+		note(label + ": " + (last + 1) + " frames in " + (sampled - loaded) + " ms" + (face.length ? ", its face on " + faceFrames + " frames" : "") + ".");
+	}
+
+	// A face test clip (args.testFace): the given face values keyed on the clip's figure, then sampled like a clip.
+	function sampleTestClip(rest, zero, snap) {
+		var main = mainFigure(), parts = [main, null, null], f = followers(main);
+		for (var k = 0; k < f.length; k++) {
+			if (f[k].getName().indexOf("Mouth") >= 0) parts[1] = f[k];
+			if (f[k].getName().indexOf("Eyes") >= 0) parts[2] = f[k];
+		}
+		var props = faceProps(parts), step = Scene.getTimeStep();
+		for (var i = 0; i < A.testFace.length; i++) {
+			var fr = A.testFace[i][0], set = A.testFace[i][1];
+			for (var key in set) if (typeof set[key] == "number" && props[key]) props[key].setValue(fr * step, set[key]);
+		}
+		sampleClip({file: "", pack: "Test", source: null, test: true}, rest, zero, snap);
 	}
 
 	// UnrealPose: DTH's ROM applied, frame 1 sampled, the ROM taken off again.
@@ -483,11 +707,19 @@
 		zeroDrift = Math.max(zeroDrift, Math.abs(zp[0] - fp[0]), Math.abs(zp[1] - fp[1]), Math.abs(zp[2] - fp[2]));
 	}
 	if (zeroDrift > 1e-4) note("The reloaded figure differs from the first by " + zeroDrift + " cm.");
+	// The face figure, beside the clip's figure, before the snapshot (so restoring covers it too).
+	if (FACE_ON) {
+		FACEFIG = loadFaceFigure();
+		if (!FACEFIG) note("Could not load a second Genesis 9 for the faces: the clips are sampled without them.");
+		else { FACE = faceRegion(); writeText(OUT + "/face.json", JSON.stringify({unit: GEO_UNIT, figures: FACE})); }
+		Scene.selectAllNodes(false);
+	}
 	// The Genesis 8 figures the clips need, beside G9, before the snapshot (so restoring covers them too).
 	var kinds = {};
 	for (var ck = 0; ck < clips.length; ck++) if (clips[ck].source) kinds[clips[ck].source] = true;
 	for (var kind in kinds) if (loadSource(kind)) note(kind + " loaded for its clips (hip scale " + round(RETARGET[kind].scale, 4) + ").");
 	var snap = snapshot();
+	if (A.testFace) sampleTestClip(rest, zero, snap);
 	for (var c = 0; c < clips.length; c++) sampleClip(clips[c], rest, zero, snap);
 	var index = {format: "DTH Animation Samples Index", version: 1, sampledAt: new Date().toISOString(), clips: result.clips, errors: result.errors};
 	writeText(OUT + "/DTH_AnimationSamples.json", JSON.stringify(index));

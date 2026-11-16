@@ -2,7 +2,7 @@
 
 An Unreal Engine 5.8 editor plugin. It brings Daz Studio animations onto DazToHue Genesis 9 characters 1:1 with Daz, including multi-actor scenes: you give each role a character, and the actors play in sync.
 
-Each clip is sampled frame by frame in Daz Studio and recreated in Unreal with the DTH Pose Wizard's measured solve (its `DTHPoseCore` module). This plugin depends on the DTH Pose Wizard plugin, 0.3.0 or later (https://github.com/kayjameson/DTH-Pose-Wizard/releases): install both in your project's `Plugins` folder.
+Each clip is sampled frame by frame in Daz Studio and recreated in Unreal with the DTH Pose Wizard's measured solve (its `DTHPoseCore` module). This plugin depends on the DTH Pose Wizard plugin, 0.4.0 or later (its face fit, `DTHFaceCore`, carries clip faces) (https://github.com/kayjameson/DTH-Pose-Wizard/releases): install both in your project's `Plugins` folder.
 
 ## Use
 
@@ -10,12 +10,16 @@ Each clip is sampled frame by frame in Daz Studio and recreated in Unreal with t
    - loads a fresh Genesis 9 and records DTH's rest pose (UnrealPose)
    - applies every clip in an `Animations` folder under `People/Genesis 9*` and records every frame
    - does the same for clips under `People/Genesis 8*`, carried onto Genesis 9 (see below). This needs Genesis 8 Female and Male Starter Essentials.
+   - records the clip's face on every frame where it keys one (eyes, lids, jaw, lips, tongue, brows): a second,
+     never-animated Genesis 9 stands beside the clip's figure, takes the clip's face values frame by frame and is
+     measured as the Expression Wizard measures an expression (`face.json`, `clips/<clip>.face.txt`). A clip that keys
+     no face costs nothing more. `args.face: false` leaves faces out; `args.testFace` keys a face test clip.
    - writes `DTH_AnimationSamples.json` to `Documents/DAZ 3D/Studio4/DTH Animation Wizard`
 
    Nothing is saved in Daz. A run that stops carries on where it left off. One set of samples serves every DTH Genesis 9 character.
 2. **Open Tools > DazToHue > DTH Animation Wizard.**
    - **Settings:** check *Daz Samples Index* and *Sequence Folder*.
-   - **Clips:** click a clip to preview it, tick clips, pick a character, and write. Each clip becomes `Sequence Folder/<character>/<pack>/A_<clip>`: one key per Daz frame at the clip's frame rate, bone tracks only.
+   - **Clips:** click a clip to preview it, tick clips, pick a character, and write. Each clip becomes `Sequence Folder/<character>/<pack>/A_<clip>`: one key per Daz frame at the clip's frame rate, bone tracks, and the clip's face when it keys one: fitted on the character frame by frame with the shared face fit (`DTHFaceCore`, each frame starting from the one before), as face-board and morph curves plus the eyes, jaw and tongue turned past DTH's face rig.
    - **Scenes:** clips made to play together (same pack, names differing only in the last word, e.g. `... Female` and `... Male`). Pick a scene, give each role a character, and build. Each role's sequence is written for its character, plus `Sequence Folder/Scenes/<pack>/LS_<scene>`, a level sequence that plays them together from frame 0. Every actor starts at the sequence's origin: the samples carry their placement relative to each other.
    - **Preview** (on both pages): the clip, or every cast role of the scene, plays on its character in the wizard's own preview scene, with play/pause, a scrubber, loop, and front, side and three-quarter views. It plays exactly what the written sequence plays (the same solve, through the character's post-process blueprint). Nothing is written.
    - **Speed** (under the preview): how fast the clip or scene plays, 0.1 to 4. Writing keeps it as each sequence's Rate Scale, so the frames are unchanged and the sequence plays at that speed everywhere, Sequencer included. A scene's speed applies to every role, and its tracks and playback range are stretched to match, so the actors stay in sync.
@@ -53,5 +57,5 @@ The `DTH.Anim.*` automation tests. Test assets go only under the settings' Test 
 - **Pec clavicles.** DTH's Skeleton translation retargeting on the pec clavicles keeps their bind translation, so a played frame can be up to about 0.6 cm off there.
 - **Twist bones.** DTH's post-process blueprint solves the twist bones from the hand, so they differ from Daz's keyed twist bones.
 - **Figure scale.** A character's Daz figure scale (Vi: 0.99333) is not in the DTH export, so the hip travels by base Genesis 9's distance. That's about 0.3 cm on 48 cm of travel.
-- **No face or morphs.** Sequences carry bones only. Clips that key morphs are reported, and face sequences layer over the result.
+- **Faces.** A clip's face is carried when it was sampled with this sampler (0.2.0); body shape morphs are not, and are reported. None of the installed Genesis 9 clips animates the face (they key it to rest on frame 0). The face path is checked on a face test clip (`DTH.Anim.Face.Clip`, 2026-11-16): every face region within 0.4 mm on the measured frames except a few gum points, and the eyes turned 28.90 deg where Daz turns them 29.09 deg, past DTH's 20 deg eye-look limit. A clip that keys a pack's expression morph Daz loads on demand loses that part of its face (the second figure does not have the morph).
 - **Contacts between actors.** If a character's proportions differ from base Genesis 9's, contacts between actors (hands, embraces) may not meet exactly.
